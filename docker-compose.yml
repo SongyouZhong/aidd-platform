@@ -1,0 +1,106 @@
+# =========================================================================
+# AIDD Platform Docker Compose 配置
+# =========================================================================
+# 
+# 启动方式:
+#   开发环境: docker-compose up -d
+#   生产环境: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# =========================================================================
+
+version: "3.8"
+
+services:
+  # =========================================================================
+  # 平台服务
+  # =========================================================================
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aidd-platform
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://aidd:aidd_password@postgres:5432/aidd_platform
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=true
+    volumes:
+      - ./app:/app/app:ro  # 开发时挂载代码
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aidd-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # =========================================================================
+  # PostgreSQL 数据库
+  # =========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: aidd-postgres
+    environment:
+      - POSTGRES_USER=aidd
+      - POSTGRES_PASSWORD=aidd_password
+      - POSTGRES_DB=aidd_platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - aidd-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aidd -d aidd_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =========================================================================
+  # Redis 缓存/消息队列
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: aidd-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - aidd-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =========================================================================
+# 网络配置
+# =========================================================================
+networks:
+  aidd-network:
+    driver: bridge
+    name: aidd-network
+
+# =========================================================================
+# 数据卷
+# =========================================================================
+volumes:
+  postgres_data:
+    name: aidd-postgres-data
+  redis_data:
+    name: aidd-redis-data
