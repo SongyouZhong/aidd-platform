@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import uuid4
 import logging
+import json
 
 from app.models import Task, TaskStatus, TaskPriority, ResourceRequirement
 from app.api.deps import get_dispatcher, get_redis_task_queue
@@ -20,6 +21,7 @@ from app.mq import RedisTaskQueue
 from app.config import get_settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # =========================================================================
@@ -117,6 +119,62 @@ class QueueStatsResponse(BaseModel):
 # API 端点（Redis MQ 模式）
 # =========================================================================
 
+def _save_task_to_db(task: Task) -> bool:
+    """将任务保存到 PostgreSQL（可选，用于持久化）"""
+    try:
+        import psycopg2
+        settings = get_settings()
+        
+        conn = psycopg2.connect(
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            database=settings.postgres_db
+        )
+        cur = conn.cursor()
+        
+        sql = """
+        INSERT INTO tasks (
+            id, service, task_type, name, status, priority,
+            input_params, input_files, max_retries, timeout_seconds,
+            resource_cpu_cores, resource_memory_gb, resource_gpu_count, resource_gpu_memory_gb,
+            job_id, created_at
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        """
+        cur.execute(sql, (
+            task.id,
+            task.service,
+            task.task_type or "",
+            task.name or "",
+            task.status.value if task.status else "pending",
+            task.priority.value if task.priority else 2,
+            json.dumps(task.input_params) if task.input_params else "{}",
+            json.dumps(task.input_files) if task.input_files else "[]",
+            task.max_retries or 3,
+            task.timeout_seconds or 3600,
+            task.resources.cpu_cores if task.resources else 1,
+            task.resources.memory_gb if task.resources else 1.0,
+            task.resources.gpu_count if task.resources else 0,
+            task.resources.gpu_memory_gb if task.resources else 0.0,
+            task.job_id,
+            task.created_at or datetime.utcnow()
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"任务已保存到数据库: {task.id}")
+        return True
+    except ImportError:
+        logger.warning("psycopg2 未安装，跳过数据库持久化")
+        return False
+    except Exception as e:
+        logger.warning(f"保存任务到数据库失败（不影响任务执行）: {e}")
+        return False
+
+
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     request: TaskCreate,
@@ -158,11 +216,15 @@ async def create_task(
             gpu_memory_gb=request.resource_requirement.gpu_memory_gb
         )
     
+    # 1. 推送到 Redis 队列（核心功能）
     if not await task_queue.push(task):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to submit task (possibly duplicate)"
         )
+    
+    # 2. 保存到 PostgreSQL（持久化，失败不影响任务执行）
+    _save_task_to_db(task)
     
     return TaskResponse(
         id=task.id,

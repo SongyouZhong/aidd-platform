@@ -108,13 +108,11 @@
 │   │       ├── __init__.py
 │   │       ├── health.py       # 健康检查 API
 │   │       ├── tasks.py        # 任务 API
-│   │       ├── jobs.py         # 批量作业 API
 │   │       └── workers.py      # Worker 管理 API
 │   │
 │   ├── models/                 # 数据模型
 │   │   ├── __init__.py
 │   │   ├── task.py             # 任务模型
-│   │   ├── job.py              # 作业模型
 │   │   ├── worker.py           # Worker 模型
 │   │   └── resource.py         # 资源模型
 │   │
@@ -243,9 +241,6 @@ docker-compose up -d
 | GET | `/api/v1/tasks/{id}` | 获取任务详情 |
 | GET | `/api/v1/tasks/stats` | 获取队列统计 |
 | DELETE | `/api/v1/tasks/{id}` | 取消任务 |
-| POST | `/api/v1/jobs` | 创建批量作业 |
-| GET | `/api/v1/jobs/{id}` | 获取作业状态 |
-| GET | `/api/v1/jobs/{id}/tasks` | 获取作业任务列表 |
 | POST | `/api/v1/workers/register` | 注册 Worker |
 | POST | `/api/v1/workers/{id}/heartbeat` | Worker 心跳 |
 | GET | `/api/v1/workers/stats` | 集群资源统计 |

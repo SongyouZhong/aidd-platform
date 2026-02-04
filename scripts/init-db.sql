@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     
     -- 执行信息
     worker_id UUID,
-    job_id UUID,
     retry_count INT DEFAULT 0,
     max_retries INT DEFAULT 3,
     timeout_seconds INT DEFAULT 3600,
@@ -49,39 +48,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_service ON tasks(service);
 CREATE INDEX idx_tasks_priority ON tasks(priority);
-CREATE INDEX idx_tasks_job_id ON tasks(job_id);
 CREATE INDEX idx_tasks_worker_id ON tasks(worker_id);
 CREATE INDEX idx_tasks_created_at ON tasks(created_at);
-
--- =========================================================================
--- 作业表
--- =========================================================================
-CREATE TABLE IF NOT EXISTS jobs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    priority VARCHAR(50) NOT NULL DEFAULT 'normal',
-    
-    -- 统计信息
-    total_tasks INT DEFAULT 0,
-    completed_tasks INT DEFAULT 0,
-    failed_tasks INT DEFAULT 0,
-    
-    -- 结果
-    results JSONB,
-    error_message TEXT,
-    
-    -- 时间戳
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    started_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 作业索引
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_created_at ON jobs(created_at);
 
 -- =========================================================================
 -- Worker 表
@@ -133,11 +101,6 @@ $$ language 'plpgsql';
 
 CREATE TRIGGER update_tasks_updated_at
     BEFORE UPDATE ON tasks
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_jobs_updated_at
-    BEFORE UPDATE ON jobs
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
