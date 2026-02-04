@@ -23,11 +23,12 @@ class TaskStatus(str, Enum):
 
 
 class TaskPriority(int, Enum):
-    """任务优先级（数值越大优先级越高）"""
-    LOW = 1
-    NORMAL = 5
-    HIGH = 10
-    URGENT = 20
+    """任务优先级（数值越小优先级越高）"""
+    CRITICAL = 0    # 最高优先级，紧急任务
+    HIGH = 1        # 高优先级
+    NORMAL = 2      # 正常优先级
+    LOW = 3         # 低优先级
+    BATCH = 4       # 批量任务，最低优先级
 
 
 class Task(BaseModel):
@@ -44,6 +45,9 @@ class Task(BaseModel):
     
     # 关联的批量作业（可选）
     job_id: Optional[str] = Field(default=None, description="所属批量作业 ID")
+    
+    # 任务名称（可选，便于用户识别）
+    name: Optional[str] = Field(default=None, description="任务名称")
     
     # =========================================================================
     # 任务类型

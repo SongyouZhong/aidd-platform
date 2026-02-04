@@ -42,7 +42,7 @@ class RedisTaskQueue:
     FAILED_KEY = f"{PREFIX}:queue:failed"
     STATS_KEY = f"{PREFIX}:stats"
     
-    # 优先级分数映射（分数越小优先级越高）
+    # 优先级分数映射（分数越小优先级越高，直接使用枚举值）
     PRIORITY_SCORES = {
         TaskPriority.CRITICAL: 0,
         TaskPriority.HIGH: 100,
@@ -402,29 +402,32 @@ class RedisTaskQueue:
     # =========================================================================
     
     def _serialize_task(self, task: Task) -> Dict[str, str]:
-        """将 Task 序列化为 Redis Hash"""
+        """将 Task 序列化为 Redis Hash（与 aidd-toolkit 保持一致）"""
         data = {
             "id": task.id,
             "service": task.service,
+            "task_type": task.task_type or "",
             "name": task.name or "",
             "status": task.status.value if task.status else TaskStatus.PENDING.value,
-            "priority": task.priority.value if task.priority else TaskPriority.NORMAL.value,
-            "input_data": json.dumps(task.input_data) if task.input_data else "{}",
-            "parameters": json.dumps(task.parameters) if task.parameters else "{}",
+            "priority": str(task.priority.value) if task.priority else str(TaskPriority.NORMAL.value),
+            "input_params": json.dumps(task.input_params) if task.input_params else "{}",
+            "input_files": json.dumps(task.input_files) if task.input_files else "[]",
+            "output_files": json.dumps(task.output_files) if task.output_files else "[]",
             "retry_count": str(task.retry_count or 0),
             "max_retries": str(task.max_retries or 3),
             "timeout_seconds": str(task.timeout_seconds or 0),
             "job_id": task.job_id or "",
             "worker_id": task.worker_id or "",
             "error_message": task.error_message or "",
+            "progress": str(task.progress or 0),
             "created_at": task.created_at.isoformat() if task.created_at else datetime.utcnow().isoformat(),
         }
         
-        if task.resource_requirement:
-            data["resource_cpu"] = str(task.resource_requirement.cpu_cores)
-            data["resource_memory"] = str(task.resource_requirement.memory_gb)
-            data["resource_gpu"] = str(task.resource_requirement.gpu_count)
-            data["resource_gpu_memory"] = str(task.resource_requirement.gpu_memory_gb)
+        if task.resources:
+            data["resource_cpu_cores"] = str(task.resources.cpu_cores)
+            data["resource_memory_gb"] = str(task.resources.memory_gb)
+            data["resource_gpu_count"] = str(task.resources.gpu_count)
+            data["resource_gpu_memory_gb"] = str(task.resources.gpu_memory_gb)
         
         if task.result:
             data["result"] = json.dumps(task.result)
@@ -432,18 +435,28 @@ class RedisTaskQueue:
         return data
     
     def _deserialize_task(self, data: Dict[str, str]) -> Task:
-        """从 Redis Hash 反序列化为 Task"""
+        """从 Redis Hash 反序列化为 Task（与 aidd-toolkit 保持一致）"""
+        # 解析 priority（可能是数字字符串或枚举名称）
+        priority_val = data.get("priority", "2")
+        try:
+            priority = TaskPriority(int(priority_val))
+        except ValueError:
+            priority = TaskPriority.NORMAL
+        
         task = Task(
             id=data.get("id", ""),
             service=data.get("service", ""),
+            task_type=data.get("task_type", ""),
             name=data.get("name") or None,
             status=TaskStatus(data.get("status", "pending")),
-            priority=TaskPriority(data.get("priority", "normal")),
-            input_data=json.loads(data.get("input_data", "{}")),
-            parameters=json.loads(data.get("parameters", "{}")),
+            priority=priority,
+            input_params=json.loads(data.get("input_params", "{}")),
+            input_files=json.loads(data.get("input_files", "[]")),
+            output_files=json.loads(data.get("output_files", "[]")),
             retry_count=int(data.get("retry_count", 0)),
             max_retries=int(data.get("max_retries", 3)),
             timeout_seconds=int(data.get("timeout_seconds", 0)) or None,
+            progress=float(data.get("progress", 0)),
             job_id=data.get("job_id") or None,
             worker_id=data.get("worker_id") or None,
             error_message=data.get("error_message") or None,
@@ -458,12 +471,12 @@ class RedisTaskQueue:
             task.completed_at = datetime.fromisoformat(data["completed_at"])
         
         # 资源需求
-        if data.get("resource_cpu"):
-            task.resource_requirement = ResourceRequirement(
-                cpu_cores=int(data.get("resource_cpu", 1)),
-                memory_gb=float(data.get("resource_memory", 1.0)),
-                gpu_count=int(data.get("resource_gpu", 0)),
-                gpu_memory_gb=float(data.get("resource_gpu_memory", 0.0)),
+        if data.get("resource_cpu_cores"):
+            task.resources = ResourceRequirement(
+                cpu_cores=int(data.get("resource_cpu_cores", 1)),
+                memory_gb=float(data.get("resource_memory_gb", 1.0)),
+                gpu_count=int(data.get("resource_gpu_count", 0)),
+                gpu_memory_gb=float(data.get("resource_gpu_memory_gb", 0.0)),
             )
         
         # 结果

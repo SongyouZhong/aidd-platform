@@ -83,10 +83,14 @@ worker_manager:
 storage:
   minio:
     endpoint: ${MINIO_ENDPOINT:172.19.80.100:9090}
-    access_key: ${MINIO_ACCESS_KEY:minioadmin}
-    secret_key: ${MINIO_SECRET_KEY:minioadmin}
+    access_key: ${MINIO_ACCESS_KEY:admin}
+    secret_key: ${MINIO_SECRET_KEY:minio_test_password_2025}
     secure: false
     bucket: ${MINIO_BUCKET:aidd-files}
+  
+  local:
+    upload_dir: ${FILES_UPLOAD_DIR:/tmp/aidd-uploads}
+    temp_dir: ${TEMP_DIR:/tmp/aidd-platform}
 
 # -----------------------------------------------------------------------------
 # 服务队列映射

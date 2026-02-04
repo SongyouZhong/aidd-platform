@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import uuid4
+import logging
 
 from app.models import Task, TaskStatus, TaskPriority, ResourceRequirement
 from app.api.deps import get_dispatcher, get_redis_task_queue
@@ -36,10 +37,11 @@ class ResourceRequirementSchema(BaseModel):
 class TaskCreate(BaseModel):
     """创建任务请求"""
     service: str = Field(..., description="服务类型，如 admet, docking")
+    task_type: str = Field(default="", description="具体任务类型，如 qikprop, vina")
     name: Optional[str] = Field(None, description="任务名称")
     priority: TaskPriority = Field(default=TaskPriority.NORMAL)
-    input_data: Dict[str, Any] = Field(default_factory=dict)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    input_params: Dict[str, Any] = Field(default_factory=dict, description="任务参数")
+    input_files: List[str] = Field(default_factory=list, description="输入文件路径")
     resource_requirement: Optional[ResourceRequirementSchema] = None
     max_retries: int = Field(default=3, ge=0)
     timeout_seconds: Optional[int] = Field(None, ge=1)
@@ -49,14 +51,13 @@ class TaskCreate(BaseModel):
         json_schema_extra = {
             "example": {
                 "service": "admet",
+                "task_type": "qikprop",
                 "name": "ADMET预测任务",
                 "priority": "normal",
-                "input_data": {
+                "input_params": {
                     "smiles": ["CCO", "CC(=O)OC1=CC=CC=C1C(=O)O"]
                 },
-                "parameters": {
-                    "mode": "qikprop"
-                },
+                "input_files": [],
                 "resource_requirement": {
                     "cpu_cores": 2,
                     "memory_gb": 4.0
@@ -125,25 +126,32 @@ async def create_task(
     创建新任务（提交到 Redis 队列）
     
     - **service**: 服务类型 (admet, docking 等)
+    - **task_type**: 具体任务类型 (qikprop, vina 等)
     - **priority**: 任务优先级
-    - **input_data**: 输入数据
-    - **parameters**: 服务参数
+    - **input_params**: 任务参数
+    - **input_files**: 输入文件路径
     """
-    task = Task(
-        id=str(uuid4()),
-        service=request.service,
-        name=request.name,
-        priority=request.priority,
-        input_data=request.input_data,
-        parameters=request.parameters,
-        max_retries=request.max_retries,
-        timeout_seconds=request.timeout_seconds,
-        job_id=request.job_id,
-        created_at=datetime.utcnow()
-    )
+    # 构建任务参数，排除 None 值让 Task 模型使用默认值
+    task_data = {
+        "id": str(uuid4()),
+        "service": request.service,
+        "task_type": request.task_type,
+        "name": request.name,
+        "priority": request.priority,
+        "input_params": request.input_params,
+        "input_files": request.input_files,
+        "max_retries": request.max_retries,
+        "job_id": request.job_id,
+        "created_at": datetime.utcnow()
+    }
+    # 仅当 timeout_seconds 有值时才传入
+    if request.timeout_seconds is not None:
+        task_data["timeout_seconds"] = request.timeout_seconds
+    
+    task = Task(**task_data)
     
     if request.resource_requirement:
-        task.resource_requirement = ResourceRequirement(
+        task.resources = ResourceRequirement(
             cpu_cores=request.resource_requirement.cpu_cores,
             memory_gb=request.resource_requirement.memory_gb,
             gpu_count=request.resource_requirement.gpu_count,
@@ -184,10 +192,11 @@ async def create_tasks_batch(
         task = Task(
             id=str(uuid4()),
             service=req.service,
+            task_type=req.task_type,
             name=req.name,
             priority=req.priority,
-            input_data=req.input_data,
-            parameters=req.parameters,
+            input_params=req.input_params,
+            input_files=req.input_files,
             max_retries=req.max_retries,
             timeout_seconds=req.timeout_seconds,
             job_id=req.job_id,
@@ -195,7 +204,7 @@ async def create_tasks_batch(
         )
         
         if req.resource_requirement:
-            task.resource_requirement = ResourceRequirement(
+            task.resources = ResourceRequirement(
                 cpu_cores=req.resource_requirement.cpu_cores,
                 memory_gb=req.resource_requirement.memory_gb,
                 gpu_count=req.resource_requirement.gpu_count,

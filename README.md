@@ -6,6 +6,11 @@
 - **aidd-toolkit**: 提供封装好的计算工具（QikProp、Docking 等）
 - **aidd-platform**: 负责任务调度、资源管理、Worker 编排
 
+**核心组件**：
+- **Redis**: 任务队列（消息中间件）
+- **PostgreSQL**: 任务持久化存储
+- **MinIO**: 文件对象存储（输入/输出文件）
+
 ---
 
 ## 🏗️ 架构概览
@@ -101,10 +106,10 @@
 │   │   ├── deps.py             # 依赖注入
 │   │   └── v1/
 │   │       ├── __init__.py
+│   │       ├── health.py       # 健康检查 API
 │   │       ├── tasks.py        # 任务 API
 │   │       ├── jobs.py         # 批量作业 API
-│   │       ├── workers.py      # Worker 管理 API
-│   │       └── resources.py    # 资源查询 API
+│   │       └── workers.py      # Worker 管理 API
 │   │
 │   ├── models/                 # 数据模型
 │   │   ├── __init__.py
@@ -113,11 +118,11 @@
 │   │   ├── worker.py           # Worker 模型
 │   │   └── resource.py         # 资源模型
 │   │
-│   ├── schemas/                # Pydantic Schema
+│   ├── mq/                     # 消息队列
 │   │   ├── __init__.py
-│   │   ├── task.py
-│   │   ├── job.py
-│   │   └── worker.py
+│   │   ├── redis_client.py     # Redis 客户端
+│   │   ├── task_queue.py       # 任务队列
+│   │   └── task_consumer.py    # 任务消费者
 │   │
 │   ├── scheduler/              # 调度器核心
 │   │   ├── __init__.py
@@ -125,48 +130,56 @@
 │   │   ├── resource_manager.py # 资源管理器
 │   │   └── priority_queue.py   # 优先级队列
 │   │
-│   ├── worker_manager/         # Worker 管理
+│   ├── storage/                # 存储模块
 │   │   ├── __init__.py
-│   │   ├── registry.py         # Worker 注册中心
-│   │   └── heartbeat.py        # 心跳检测
+│   │   ├── minio_client.py     # MinIO 对象存储客户端
+│   │   └── storage.py          # 统一存储接口
 │   │
-│   ├── db/                     # 数据库
+│   ├── worker/                 # Worker 客户端
 │   │   ├── __init__.py
-│   │   ├── session.py          # 数据库会话
-│   │   └── repositories/       # 数据访问层
-│   │       ├── __init__.py
-│   │       ├── task_repo.py
-│   │       └── worker_repo.py
+│   │   └── client.py           # Worker 通信客户端
 │   │
-│   └── core/                   # 核心工具
+│   └── db/                     # 数据库
 │       ├── __init__.py
-│       ├── redis.py            # Redis 客户端
-│       └── exceptions.py       # 自定义异常
+│       └── session.py          # 数据库会话
 │
 ├── config/
-│   └── config.yml              # 配置文件
+│   └── config.yml              # 配置文件 (YAML)
 │
-├── alembic/                    # 数据库迁移
-│   └── versions/
-│
-├── tests/                      # 测试
+├── scripts/
+│   └── init-db.sql             # 数据库初始化脚本
 │
 ├── docker-compose.yml
 ├── Dockerfile
-├── requirements.txt
-├── alembic.ini
-└── pyproject.toml
+├── environment.yml             # Mamba/Conda 环境配置
+└── requirements.txt            # pip 依赖（备用）
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 1. 创建虚拟环境（使用 mamba）
 
 ```bash
-pip install -r requirements.txt
+# 使用 mamba 创建环境
+mamba env create -f environment.yml
+
+# 激活环境
+mamba activate aidd-platform
+
+# 更新环境（如果依赖有变化）
+mamba env update -f environment.yml --prune
 ```
+
+> **注意**: 如果没有安装 mamba，可以使用以下命令安装:
+> ```bash
+> # 使用 conda 安装 mamba
+> conda install -c conda-forge mamba
+> 
+> # 或使用 miniforge（推荐，已内置 mamba）
+> # https://github.com/conda-forge/miniforge
+> ```
 
 ### 2. 配置环境变量
 
@@ -176,10 +189,33 @@ export POSTGRES_PORT=30684
 export REDIS_HOST=localhost
 ```
 
+或者复制并编辑 `.env` 文件:
+```bash
+cp .env.example .env
+# 编辑 .env 文件配置相关参数
+```
+
 ### 3. 初始化数据库
 
 ```bash
-alembic upgrade head
+# 使用 psql 执行初始化脚本
+PGPASSWORD=strongpassword psql -h 10.18.85.10 -p 30684 -U appuser -d aichemol -f scripts/init-db.sql
+
+# 或使用 Python
+python -c "
+import psycopg2
+with open('scripts/init-db.sql', 'r') as f:
+    sql = f.read()
+conn = psycopg2.connect(
+    host='10.18.85.10', port=30684,
+    user='appuser', password='strongpassword',
+    database='aichemol'
+)
+conn.autocommit = True
+conn.cursor().execute(sql)
+conn.close()
+print('数据库初始化完成')
+"
 ```
 
 ### 4. 启动服务
@@ -214,6 +250,49 @@ docker-compose up -d
 | POST | `/api/v1/workers/{id}/heartbeat` | Worker 心跳 |
 | GET | `/api/v1/workers/stats` | 集群资源统计 |
 | GET | `/api/v1/health` | 健康检查 |
+
+---
+
+## 📦 MinIO 对象存储
+
+平台使用 MinIO 作为文件存储后端，用于存储任务的输入/输出文件。
+
+### 配置
+
+```yaml
+# config/config.yml
+storage:
+  minio:
+    endpoint: 172.19.80.100:9090
+    access_key: admin
+    secret_key: minio_test_password_2025
+    bucket: aidd-files
+    secure: false
+```
+
+### 使用示例
+
+```python
+from app.storage import get_storage
+
+storage = get_storage()
+
+# 上传文件到 MinIO
+storage.upload('tasks/input.csv', csv_data)
+storage.upload_file('tasks/result.csv', '/local/path/result.csv')
+
+# 下载文件
+data = storage.download('tasks/input.csv')
+storage.download_to_file('tasks/result.csv', '/local/path/result.csv')
+
+# 获取预签名 URL（用于客户端直接访问）
+url = storage.get_presigned_url('tasks/result.csv', expires_hours=24)
+
+# 临时文件（本地磁盘，计算过程使用）
+temp_path = storage.save_temp('temp.csv', data)
+storage.download_to_temp('input.csv')  # 从 MinIO 下载到临时目录
+storage.clean_temp()  # 清理临时文件
+```
 
 ---
 

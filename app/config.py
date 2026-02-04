@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     
     # MinIO
     minio_endpoint: str = Field(default="172.19.80.100:9090", alias="MINIO_ENDPOINT")
-    minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
-    minio_secret_key: str = Field(default="minioadmin", alias="MINIO_SECRET_KEY")
+    minio_access_key: str = Field(default="admin", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="minio_test_password_2025", alias="MINIO_SECRET_KEY")
     minio_bucket: str = Field(default="aidd-files", alias="MINIO_BUCKET")
+    minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
     
     # 调度器
     dispatch_interval: float = 1.0

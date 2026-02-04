@@ -11,13 +11,15 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS tasks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     service VARCHAR(100) NOT NULL,
+    task_type VARCHAR(100) DEFAULT '',
     name VARCHAR(255),
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    priority VARCHAR(50) NOT NULL DEFAULT 'normal',
+    priority INT NOT NULL DEFAULT 2,
     
     -- 输入输出
-    input_data JSONB,
-    parameters JSONB,
+    input_params JSONB DEFAULT '{}'::jsonb,
+    input_files JSONB DEFAULT '[]'::jsonb,
+    output_files JSONB DEFAULT '[]'::jsonb,
     result JSONB,
     
     -- 资源需求
@@ -31,8 +33,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     job_id UUID,
     retry_count INT DEFAULT 0,
     max_retries INT DEFAULT 3,
-    timeout_seconds INT,
+    timeout_seconds INT DEFAULT 3600,
+    progress FLOAT DEFAULT 0,
     error_message TEXT,
+    duration_seconds FLOAT,
     
     -- 时间戳
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

@@ -1,0 +1,59 @@
+# =============================================================================
+# AIDD Platform 环境配置
+# =============================================================================
+# 
+# 使用 mamba 创建环境:
+#   mamba env create -f environment.yml
+#   mamba activate aidd-platform
+#
+# 更新环境:
+#   mamba env update -f environment.yml --prune
+#
+# =============================================================================
+
+name: aidd-platform
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python 版本
+  - python==3.11
+  
+  # FastAPI 及 Web 相关
+  - fastapi
+  - uvicorn
+  - python-multipart
+  
+  # 数据库
+  - sqlalchemy
+  - asyncpg
+  - alembic
+  
+  # Redis
+  - redis-py
+  
+  # 验证和配置
+  - pydantic
+  - pydantic-settings
+  - pyyaml
+  
+  # HTTP 客户端
+  - httpx
+  
+  # 工具
+  - python-dateutil
+  
+  # 测试
+  - pytest
+  - pytest-asyncio
+  
+  # 开发工具
+  - black
+  - isort
+  
+  # pip 安装的包
+  - pip
+  - pip:
+      # MinIO 客户端 (conda-forge 中可能版本较旧)
+      - minio
