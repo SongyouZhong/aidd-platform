@@ -220,7 +220,7 @@ print('数据库初始化完成')
 
 ```bash
 # 开发模式
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8333
 
 # 生产模式
 docker-compose up -d
@@ -228,8 +228,8 @@ docker-compose up -d
 
 ### 5. 访问 API 文档
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8333/docs
+- ReDoc: http://localhost:8333/redoc
 
 ---
 
@@ -293,53 +293,124 @@ storage.clean_temp()  # 清理临时文件
 
 ## 🔗 与 aidd-toolkit 集成
 
-### Worker 消费示例
+### Worker 生命周期
 
-在 aidd-toolkit 中创建任务消费者：
+aidd-toolkit 中的 Worker 通过 HTTP 调用本平台进行注册/注销：
 
-```python
-from app.mq import create_consumer, Task
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Worker 生命周期                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. 启动                                                     │
+│     └──▶ POST /api/v1/workers/register                       │
+│          返回 worker_id，状态 = online                        │
+│          同时持久化到 PostgreSQL workers 表                   │
+│                                                              │
+│  2. 心跳 (每 10 秒)                                           │
+│     └──▶ POST /api/v1/workers/{id}/heartbeat                 │
+│          报告 CPU/内存使用、当前任务列表                       │
+│          Platform 更新 last_heartbeat 时间戳                  │
+│                                                              │
+│  3. 运行中                                                   │
+│     └──▶ 从 Redis 消费任务 (BRPOP aidd:queue:service:admet)  │
+│     └──▶ 执行计算，更新任务状态到 Redis + PostgreSQL          │
+│                                                              │
+│  4. 停止 (Ctrl+C)                                            │
+│     └──▶ DELETE /api/v1/workers/{worker_id}                  │
+│          状态 = offline，数据库同步更新                        │
+│                                                              │
+│  5. 心跳超时 (Platform 自动检测)                              │
+│     └──▶ 超过 30 秒无心跳，自动标记 Worker 为 offline         │
+│     └──▶ 该 Worker 上的任务重新入队等待调度                   │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
 
-# 创建消费者
-consumer = create_consumer(
-    redis_url="redis://localhost:6379/0",
-    services=["admet", "docking"],
-    concurrency=4
-)
+### 心跳机制
 
-# 注册处理器
-@consumer.handler("admet")
-async def handle_admet(task: Task) -> dict:
-    # 调用 QikProp 处理
-    result = await run_qikprop(task.input_data)
-    return {"predictions": result}
+Worker 与 Platform 之间通过心跳保持连接状态：
 
-@consumer.handler("docking")
-async def handle_docking(task: Task) -> dict:
-    # 调用 Docking 处理
-    result = await run_docking(task.input_data)
-    return {"poses": result}
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `worker.heartbeat_interval` | 10 秒 | Worker 发送心跳间隔 |
+| `heartbeat_timeout` | 30 秒 | Platform 判定超时阈值 |
+| `heartbeat_check_interval` | 10 秒 | Platform 检查心跳间隔 |
 
-# 启动消费
-await consumer.start()
+**心跳请求示例**：
+```bash
+POST /api/v1/workers/{worker_id}/heartbeat
+Content-Type: application/json
+
+{
+  "used_cpu": 4,
+  "used_memory_gb": 8.5,
+  "used_gpu": 0,
+  "used_gpu_memory_gb": 0,
+  "current_tasks": ["task-uuid-1", "task-uuid-2"]
+}
+```
+
+**超时处理流程**：
+```
+Platform HeartbeatChecker (后台任务)
+    │
+    ├──▶ 每 10 秒检查所有 Worker 的 last_heartbeat
+    │
+    ├──▶ 发现超时 Worker (now - last_heartbeat > 30s)
+    │       │
+    │       ├──▶ 内存中标记 status = offline
+    │       │
+    │       └──▶ 数据库同步更新 status = offline
+    │
+    └──▶ 重新调度该 Worker 上的任务
+```
+
+### 启动 Worker
+
+```bash
+# 在 aidd-toolkit 目录下
+cd /path/to/aidd-toolkit
+mamba activate aidd-toolkit-admet
+python -m services.admet_predict.wrapper
+```
+
+启动后会看到：
+```
+INFO | Worker 注册成功: <worker-id> (hostname)
+INFO | ADMET Worker 已初始化，服务: admet, worker_id: <worker-id>
+INFO | Worker 已启动，服务: admet
 ```
 
 ### 提交任务示例
 
-```python
-import httpx
+```bash
+# 通过 curl 提交任务
+curl -X POST "http://localhost:8333/api/v1/tasks" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service": "admet",
+    "task_type": "qikprop",
+    "name": "ADMET预测",
+    "input_params": {
+      "smiles": ["CCO", "CC(=O)OC1=CC=CC=C1C(=O)O"]
+    }
+  }'
+```
 
-async with httpx.AsyncClient() as client:
-    response = await client.post(
-        "http://platform:8000/api/v1/tasks",
-        json={
-            "service": "admet",
-            "name": "ADMET 预测",
-            "priority": "normal",
-            "input_data": {"smiles": ["CCO", "CC(=O)O"]},
-            "parameters": {"mode": "qikprop"}
-        }
-    )
-    task = response.json()
-    print(f"Task ID: {task['id']}")
+```python
+# 通过 Python 提交任务
+import requests
+
+response = requests.post(
+    "http://localhost:8333/api/v1/tasks",
+    json={
+        "service": "admet",
+        "task_type": "qikprop",
+        "name": "ADMET 预测",
+        "input_params": {"smiles": ["CCO", "CC(=O)O"]}
+    }
+)
+task = response.json()
+print(f"Task ID: {task['id']}")
 ```

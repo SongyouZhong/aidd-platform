@@ -2,6 +2,7 @@
 Worker 管理 API
 """
 
+import logging
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
@@ -13,6 +14,7 @@ from app.api.deps import get_resource_manager
 from app.scheduler import ResourceManager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # =========================================================================
@@ -110,6 +112,136 @@ class ClusterStatsResponse(BaseModel):
 # API 端点
 # =========================================================================
 
+def _save_worker_to_db(worker: Worker, request: WorkerRegister) -> bool:
+    """将 Worker 保存到 PostgreSQL"""
+    try:
+        import psycopg2
+        import json
+        from app.config import get_settings
+        settings = get_settings()
+        
+        conn = psycopg2.connect(
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            database=settings.postgres_db
+        )
+        cur = conn.cursor()
+        
+        # 使用 UPSERT
+        sql = """
+        INSERT INTO workers (
+            id, hostname, ip_address, port, status,
+            total_cpu_cores, total_memory_gb, total_gpu_count, total_gpu_memory_gb,
+            used_cpu_cores, used_memory_gb, used_gpu_count, used_gpu_memory_gb,
+            supported_services, max_concurrent_tasks, labels,
+            registered_at, last_heartbeat
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            hostname = EXCLUDED.hostname,
+            ip_address = EXCLUDED.ip_address,
+            port = EXCLUDED.port,
+            status = EXCLUDED.status,
+            total_cpu_cores = EXCLUDED.total_cpu_cores,
+            total_memory_gb = EXCLUDED.total_memory_gb,
+            total_gpu_count = EXCLUDED.total_gpu_count,
+            total_gpu_memory_gb = EXCLUDED.total_gpu_memory_gb,
+            supported_services = EXCLUDED.supported_services,
+            max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
+            labels = EXCLUDED.labels,
+            last_heartbeat = EXCLUDED.last_heartbeat,
+            updated_at = CURRENT_TIMESTAMP
+        """
+        cur.execute(sql, (
+            worker.id,
+            worker.hostname,
+            worker.ip_address,
+            worker.port,
+            worker.status.value,
+            request.total_cpu,
+            request.total_memory_gb,
+            request.total_gpu,
+            request.total_gpu_memory_gb,
+            0, 0.0, 0, 0.0,  # used resources
+            request.supported_services,
+            request.max_concurrent_tasks,
+            json.dumps(request.labels) if request.labels else None,
+            worker.registered_at,
+            worker.last_heartbeat
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"保存 Worker 到数据库失败: {e}")
+        return False
+
+
+def _update_worker_heartbeat_db(worker_id: str, used_cpu: int, used_memory_gb: float, 
+                                  used_gpu: int, status: str) -> bool:
+    """更新 Worker 心跳到数据库"""
+    try:
+        import psycopg2
+        from datetime import datetime
+        from app.config import get_settings
+        settings = get_settings()
+        
+        conn = psycopg2.connect(
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            database=settings.postgres_db
+        )
+        cur = conn.cursor()
+        
+        sql = """
+        UPDATE workers SET
+            used_cpu_cores = %s,
+            used_memory_gb = %s,
+            used_gpu_count = %s,
+            status = %s,
+            last_heartbeat = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s
+        """
+        cur.execute(sql, (used_cpu, used_memory_gb, used_gpu, status, datetime.utcnow(), worker_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"更新 Worker 心跳到数据库失败: {e}")
+        return False
+
+
+def _set_worker_offline_db(worker_id: str) -> bool:
+    """标记 Worker 下线"""
+    try:
+        import psycopg2
+        from app.config import get_settings
+        settings = get_settings()
+        
+        conn = psycopg2.connect(
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            database=settings.postgres_db
+        )
+        cur = conn.cursor()
+        cur.execute("UPDATE workers SET status = 'offline', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (worker_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"标记 Worker 下线失败: {e}")
+        return False
+
+
 @router.post("/register", response_model=WorkerResponse, status_code=status.HTTP_201_CREATED)
 async def register_worker(
     request: WorkerRegister,
@@ -118,7 +250,7 @@ async def register_worker(
     """
     注册新 Worker
     
-    Worker 启动时调用此接口注册自己
+    Worker 启动时调用此接口注册自己，同时持久化到数据库
     """
     worker = Worker(
         id=str(uuid4()),
@@ -136,8 +268,13 @@ async def register_worker(
         labels=request.labels
     )
     
+    # 注册到内存
     resource_manager.register_worker(worker)
     
+    # 持久化到数据库
+    _save_worker_to_db(worker, request)
+    
+    logger.info(f"Worker 注册成功: {worker.id} ({worker.hostname})")
     return _worker_to_response(worker)
 
 
@@ -150,7 +287,7 @@ async def worker_heartbeat(
     """
     Worker 心跳
     
-    Worker 定期调用此接口报告状态
+    Worker 定期调用此接口报告状态，同时更新数据库
     """
     success = resource_manager.update_heartbeat(
         worker_id=worker_id,
@@ -167,6 +304,11 @@ async def worker_heartbeat(
         )
     
     worker = resource_manager.get_worker(worker_id)
+    
+    # 同步到数据库
+    _update_worker_heartbeat_db(worker_id, request.used_cpu, request.used_memory_gb, 
+                                 request.used_gpu, worker.status.value)
+    
     return _worker_to_response(worker)
 
 
@@ -175,7 +317,7 @@ async def unregister_worker(
     worker_id: str,
     resource_manager: ResourceManager = Depends(get_resource_manager)
 ) -> None:
-    """注销 Worker"""
+    """注销 Worker，同时更新数据库状态为 offline"""
     worker = resource_manager.unregister_worker(worker_id)
     
     if not worker:
@@ -183,6 +325,10 @@ async def unregister_worker(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Worker {worker_id} not found"
         )
+    
+    # 标记数据库中的 Worker 为 offline
+    _set_worker_offline_db(worker_id)
+    logger.info(f"Worker 已注销: {worker_id}")
 
 
 @router.get("", response_model=WorkerListResponse)

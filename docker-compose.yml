@@ -2,9 +2,20 @@
 # AIDD Platform Docker Compose 配置
 # =========================================================================
 # 
+# 前置条件:
+#   - PostgreSQL: 需要手动部署或使用现有数据库
+#   - Redis: 通过本配置自动启动
+#
 # 启动方式:
 #   开发环境: docker-compose up -d
 #   生产环境: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 环境变量 (可在 .env 文件中配置):
+#   POSTGRES_HOST: PostgreSQL 主机地址 (默认: 10.18.85.10)
+#   POSTGRES_PORT: PostgreSQL 端口 (默认: 30684)
+#   POSTGRES_USER: 数据库用户 (默认: appuser)
+#   POSTGRES_PASSWORD: 数据库密码 (默认: strongpassword)
+#   POSTGRES_DB: 数据库名称 (默认: aichemol)
 #
 # =========================================================================
 
@@ -20,52 +31,32 @@ services:
       dockerfile: Dockerfile
     container_name: aidd-platform
     ports:
-      - "8000:8000"
+      - "8333:8333"
     environment:
-      - DATABASE_URL=postgresql://aidd:aidd_password@postgres:5432/aidd_platform
-      - REDIS_URL=redis://redis:6379/0
-      - DEBUG=true
+      # PostgreSQL 连接配置 (外部数据库)
+      - POSTGRES_HOST=${POSTGRES_HOST:-10.18.85.10}
+      - POSTGRES_PORT=${POSTGRES_PORT:-30684}
+      - POSTGRES_USER=${POSTGRES_USER:-appuser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-strongpassword}
+      - POSTGRES_DB=${POSTGRES_DB:-aichemol}
+      # Redis 连接配置 (本地容器)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=${DEBUG:-true}
     volumes:
       - ./app:/app/app:ro  # 开发时挂载代码
       - ./config:/app/config:ro
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - aidd-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8333/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-
-  # =========================================================================
-  # PostgreSQL 数据库
-  # =========================================================================
-  postgres:
-    image: postgres:15-alpine
-    container_name: aidd-postgres
-    environment:
-      - POSTGRES_USER=aidd
-      - POSTGRES_PASSWORD=aidd_password
-      - POSTGRES_DB=aidd_platform
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
-    ports:
-      - "5432:5432"
-    networks:
-      - aidd-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aidd -d aidd_platform"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
       start_period: 10s
 
   # =========================================================================
@@ -100,7 +91,5 @@ networks:
 # 数据卷
 # =========================================================================
 volumes:
-  postgres_data:
-    name: aidd-postgres-data
   redis_data:
     name: aidd-redis-data

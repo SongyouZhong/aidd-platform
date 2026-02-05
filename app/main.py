@@ -4,6 +4,7 @@ AIDD Platform - 任务调度平台
 FastAPI 应用入口
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -11,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.api.v1 import api_router
-from app.api.deps import get_dispatcher, get_redis_client, close_connections
+from app.api.deps import get_dispatcher, get_redis_client, close_connections, get_resource_manager
+from app.scheduler import get_heartbeat_checker
 
 # 配置日志
 logging.basicConfig(
@@ -20,10 +22,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 全局后台任务
+_heartbeat_task = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    global _heartbeat_task
+    
     # 启动时
     logger.info("Starting AIDD Platform...")
     
@@ -39,12 +46,29 @@ async def lifespan(app: FastAPI):
     # 注意：在生产环境中应该在后台任务中运行
     # asyncio.create_task(dispatcher.start())
     
+    # 启动心跳检查器
+    resource_manager = get_resource_manager()
+    heartbeat_checker = get_heartbeat_checker(resource_manager)
+    _heartbeat_task = asyncio.create_task(heartbeat_checker.start())
+    logger.info("Heartbeat checker started")
+    
     logger.info("AIDD Platform started successfully")
     
     yield
     
     # 关闭时
     logger.info("Shutting down AIDD Platform...")
+    
+    # 停止心跳检查器
+    if _heartbeat_task:
+        await heartbeat_checker.stop()
+        _heartbeat_task.cancel()
+        try:
+            await _heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Heartbeat checker stopped")
+    
     await dispatcher.stop()
     await close_connections()
     logger.info("AIDD Platform shut down complete")

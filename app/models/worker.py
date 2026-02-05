@@ -31,15 +31,16 @@ class Worker(BaseModel):
     id: str = Field(..., description="Worker 唯一 ID")
     hostname: str = Field(..., description="主机名")
     ip_address: Optional[str] = Field(default=None, description="IP 地址")
+    port: int = Field(default=8080, description="端口号")
     
     # =========================================================================
     # 支持的服务
     # =========================================================================
-    services: List[str] = Field(
+    supported_services: List[str] = Field(
         default_factory=list,
         description="支持的服务类型: ['admet', 'docking']"
     )
-    tags: Dict[str, str] = Field(
+    labels: Dict[str, str] = Field(
         default_factory=dict,
         description="标签，用于调度匹配: {'gpu': 'nvidia', 'zone': 'a'}"
     )
@@ -118,7 +119,7 @@ class Worker(BaseModel):
     
     def can_handle_service(self, service: str) -> bool:
         """检查是否支持指定服务"""
-        return service in self.services or len(self.services) == 0
+        return service in self.supported_services or len(self.supported_services) == 0
     
     def add_task(self, task_id: str) -> None:
         """添加任务"""
