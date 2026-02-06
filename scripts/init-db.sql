@@ -110,6 +110,65 @@ CREATE TRIGGER update_workers_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================================================
+-- ADMET QikProp 计算结果表（分子属性字典，按 SMILES 去重）
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS admet_compute_result (
+    id              UUID PRIMARY KEY,
+
+    -- 分子标识（唯一键）
+    smiles          TEXT NOT NULL UNIQUE,
+
+    -- 吸收 (Absorption)
+    percent_human_oral_absorption   FLOAT,
+    human_oral_absorption           INT,
+    qp_pcaco                        FLOAT,
+    qp_pmdck                        FLOAT,
+
+    -- 分布 (Distribution)
+    qp_log_po_w     FLOAT,
+    qp_log_bb       FLOAT,
+    qp_log_khsa     FLOAT,
+    qp_log_kp       FLOAT,
+    cns             INT,
+
+    -- 代谢 (Metabolism)
+    metab           INT,
+
+    -- 溶解度
+    qp_log_s        FLOAT,
+    qp_log_pw       FLOAT,
+
+    -- 毒性 (Toxicity)
+    qp_log_herg     FLOAT,
+
+    -- 药物相似性
+    rule_of_five    INT,
+    mol_mw          FLOAT,
+
+    -- 表面积
+    psa             FLOAT,
+    sasa            FLOAT,
+    fosa            FLOAT,
+    fisa            FLOAT,
+    pisa            FLOAT,
+    wpsa            FLOAT,
+
+    -- 时间戳
+    created_at      TIMESTAMP,
+    updated_at      TIMESTAMP
+);
+
+-- ADMET 结果索引（SMILES 唯一约束已自动创建索引）
+CREATE INDEX idx_admet_compute_result_herg ON admet_compute_result(qp_log_herg) WHERE qp_log_herg IS NOT NULL;
+CREATE INDEX idx_admet_compute_result_oral ON admet_compute_result(percent_human_oral_absorption) WHERE percent_human_oral_absorption IS NOT NULL;
+CREATE INDEX idx_admet_compute_result_ro5 ON admet_compute_result(rule_of_five) WHERE rule_of_five IS NOT NULL;
+
+CREATE TRIGGER update_admet_compute_result_updated_at
+    BEFORE UPDATE ON admet_compute_result
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- =========================================================================
 -- 完成
 -- =========================================================================
 SELECT 'AIDD Platform database initialized successfully' AS status;
