@@ -207,7 +207,7 @@ def _update_worker_heartbeat_db(worker_id: str, used_cpu: int, used_memory_gb: f
             updated_at = CURRENT_TIMESTAMP
         WHERE id = %s
         """
-        cur.execute(sql, (used_cpu, used_memory_gb, used_gpu, status, datetime.utcnow(), worker_id))
+        cur.execute(sql, (used_cpu, used_memory_gb, used_gpu, status, datetime.now(), worker_id))
         conn.commit()
         cur.close()
         conn.close()

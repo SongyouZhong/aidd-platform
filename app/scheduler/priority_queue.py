@@ -52,7 +52,7 @@ class QueueItem:
         
         return cls(
             priority=priority,
-            created_at=task.created_at or datetime.utcnow(),
+            created_at=task.created_at or datetime.now(),
             task=task
         )
 

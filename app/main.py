@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.api.v1 import api_router
 from app.api.deps import get_dispatcher, get_redis_client, close_connections, get_resource_manager
-from app.scheduler import get_heartbeat_checker
+from app.scheduler import get_heartbeat_checker, get_admet_sync_checker
 
 # 配置日志
 logging.basicConfig(
@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 # 全局后台任务
 _heartbeat_task = None
+_admet_sync_task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global _heartbeat_task
+    global _heartbeat_task, _admet_sync_task
     
     # 启动时
     logger.info("Starting AIDD Platform...")
@@ -52,6 +53,13 @@ async def lifespan(app: FastAPI):
     _heartbeat_task = asyncio.create_task(heartbeat_checker.start())
     logger.info("Heartbeat checker started")
     
+    # 启动 ADMET 自动同步检查器
+    settings = get_settings()
+    if settings.admet_sync_enabled:
+        admet_sync_checker = get_admet_sync_checker()
+        _admet_sync_task = asyncio.create_task(admet_sync_checker.start())
+        logger.info("ADMET sync checker started")
+    
     logger.info("AIDD Platform started successfully")
     
     yield
@@ -68,6 +76,17 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         logger.info("Heartbeat checker stopped")
+    
+    # 停止 ADMET 同步检查器
+    if _admet_sync_task:
+        admet_sync_checker = get_admet_sync_checker()
+        await admet_sync_checker.stop()
+        _admet_sync_task.cancel()
+        try:
+            await _admet_sync_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("ADMET sync checker stopped")
     
     await dispatcher.stop()
     await close_connections()

@@ -105,7 +105,7 @@ class Task(BaseModel):
     # 时间戳
     # =========================================================================
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(),
         description="创建时间"
     )
     scheduled_at: Optional[datetime] = Field(

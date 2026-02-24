@@ -160,7 +160,7 @@ def _save_task_to_db(task: Task) -> bool:
             task.resources.gpu_count if task.resources else 0,
             task.resources.gpu_memory_gb if task.resources else 0.0,
             task.job_id,
-            task.created_at or datetime.utcnow()
+            task.created_at or datetime.now()
         ))
         conn.commit()
         cur.close()
@@ -200,7 +200,7 @@ async def create_task(
         "input_files": request.input_files,
         "max_retries": request.max_retries,
         "job_id": request.job_id,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now()
     }
     # 仅当 timeout_seconds 有值时才传入
     if request.timeout_seconds is not None:
@@ -262,7 +262,7 @@ async def create_tasks_batch(
             max_retries=req.max_retries,
             timeout_seconds=req.timeout_seconds,
             job_id=req.job_id,
-            created_at=datetime.utcnow()
+            created_at=datetime.now()
         )
         
         if req.resource_requirement:

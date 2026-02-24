@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     heartbeat_timeout: int = 30
     heartbeat_check_interval: int = 10
     
+    # ADMET 自动同步
+    admet_sync_enabled: bool = Field(default=True, alias="ADMET_SYNC_ENABLED")
+    admet_sync_interval: int = Field(default=86400, alias="ADMET_SYNC_INTERVAL")
+    admet_sync_batch_size: int = Field(default=50, alias="ADMET_SYNC_BATCH_SIZE")
+    admet_sync_priority: int = Field(default=4, alias="ADMET_SYNC_PRIORITY")
+    
     @property
     def database_url(self) -> str:
         """PostgreSQL 连接 URL"""

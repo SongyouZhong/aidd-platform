@@ -32,7 +32,7 @@ async def health_check() -> HealthResponse:
     """基础健康检查"""
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now()
     )
 
 
@@ -46,7 +46,7 @@ async def detailed_health_check(
     
     return DetailedHealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(),
         scheduler_running=stats.get("is_running", False),
         running_tasks=stats.get("running_tasks", 0),
         pending_tasks=stats.get("pending_tasks", 0),

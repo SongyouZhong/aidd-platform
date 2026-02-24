@@ -8,6 +8,7 @@ from .dispatcher import TaskDispatcher, DispatchResult
 from .resource_manager import ResourceManager
 from .priority_queue import PriorityTaskQueue, QueuePriority
 from .heartbeat_checker import HeartbeatChecker, get_heartbeat_checker
+from .admet_sync import AdmetSyncChecker, get_admet_sync_checker
 
 __all__ = [
     "TaskDispatcher",
@@ -17,4 +18,6 @@ __all__ = [
     "QueuePriority",
     "HeartbeatChecker",
     "get_heartbeat_checker",
+    "AdmetSyncChecker",
+    "get_admet_sync_checker",
 ]
