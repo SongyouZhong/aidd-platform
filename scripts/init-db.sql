@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     
     -- 执行信息
     worker_id UUID,
+    job_id VARCHAR(64),
     retry_count INT DEFAULT 0,
     max_retries INT DEFAULT 3,
     timeout_seconds INT DEFAULT 3600,
@@ -49,6 +50,7 @@ CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_service ON tasks(service);
 CREATE INDEX idx_tasks_priority ON tasks(priority);
 CREATE INDEX idx_tasks_worker_id ON tasks(worker_id);
+CREATE INDEX idx_tasks_job_id ON tasks(job_id);
 CREATE INDEX idx_tasks_created_at ON tasks(created_at);
 
 -- =========================================================================
