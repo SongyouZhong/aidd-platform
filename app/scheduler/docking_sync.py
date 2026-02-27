@@ -13,6 +13,8 @@ Docking 自动同步检查器
 """
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import uuid
@@ -24,6 +26,7 @@ import psycopg2
 from app.config import get_settings
 from app.models import Task, TaskStatus, TaskPriority, ResourceRequirement
 from app.mq.redis_client import get_redis_client
+from app.storage.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +342,35 @@ class DockingSyncChecker:
     # 任务提交
     # =========================================================================
 
+    def _generate_csv_and_upload(
+        self,
+        smiles_list: List[str],
+        task_id: str,
+        date_str: str,
+    ) -> str:
+        """
+        将 SMILES 列表生成 CSV 并上传到 MinIO
+
+        Returns:
+            MinIO 对象路径 (minio://xxx)
+        """
+        # 在内存中生成 CSV
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["smiles", "title"])
+        for idx, smi in enumerate(smiles_list):
+            writer.writerow([smi, f"mol_{idx + 1}"])
+
+        csv_bytes = buf.getvalue().encode("utf-8")
+
+        # 上传到 MinIO
+        object_name = f"tasks/input/docking_sync/{date_str}/{task_id}_input.csv"
+        storage = get_storage()
+        storage.minio.upload(object_name, csv_bytes, content_type="text/csv")
+
+        logger.debug(f"SMILES CSV 已上传到 MinIO: {object_name} ({len(smiles_list)} 条)")
+        return f"minio://{object_name}"
+
     async def _submit_docking_task(
         self,
         smiles_list: List[str],
@@ -351,10 +383,28 @@ class DockingSyncChecker:
         提交一个 Glide docking 任务到 Redis 队列
 
         同时将任务记录到 PostgreSQL tasks 表。
+        流程:
+        1. 将 smiles_list 生成 CSV 并上传到 MinIO
+        2. 构建标准 input_params (input_file + grid_file)
+        3. 推送到 Redis 队列
+        4. 保存到 PostgreSQL
         """
         now = datetime.now()
         task_id = str(uuid.uuid4())
         date_str = now.strftime("%Y%m%d")
+
+        # 将 SMILES 列表生成 CSV 并上传 MinIO
+        loop = asyncio.get_event_loop()
+        input_file = await loop.run_in_executor(
+            None, self._generate_csv_and_upload, smiles_list, task_id, date_str
+        )
+
+        # 构建标准 grid_file 路径（带 minio:// 前缀）
+        grid_file = (
+            receptor_minio_path
+            if receptor_minio_path.startswith("minio://")
+            else f"minio://{receptor_minio_path}"
+        )
 
         task = Task(
             id=task_id,
@@ -364,14 +414,14 @@ class DockingSyncChecker:
             priority=TaskPriority(self._task_priority),
             status=TaskStatus.PENDING,
             input_params={
-                "smiles_list": smiles_list,
+                "input_file": input_file,
+                "grid_file": grid_file,
                 "receptor_id": receptor_id,
-                "receptor_minio_path": receptor_minio_path,
                 "project_id": project_id,
                 "source": "docking_sync",
                 "batch_index": batch_index,
             },
-            input_files=[receptor_minio_path],
+            input_files=[input_file, grid_file],
             resources=ResourceRequirement(
                 cpu_cores=4,
                 memory_gb=8.0,
