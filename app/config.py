@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     postgres_pool_size: int = Field(default=10, alias="POSTGRES_POOL_SIZE")
     
     # Redis
-    redis_host: str = Field(default="localhost", alias="REDIS_HOST")
+    redis_host: str = Field(default="10.18.85.10", alias="REDIS_HOST")
     redis_port: int = Field(default=6379, alias="REDIS_PORT")
     redis_password: str = Field(default="", alias="REDIS_PASSWORD")
     redis_db: int = Field(default=0, alias="REDIS_DB")

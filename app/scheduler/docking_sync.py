@@ -154,6 +154,11 @@ class DockingSyncChecker:
                     logger.error(
                         f"提交 Docking 任务失败 (受体={receptor_name}, batch={batch_idx}): {e}"
                     )
+                    # 回滚该 batch 的 pending 记录，避免孤儿记录阻塞后续扫描
+                    await loop.run_in_executor(
+                        None, self._rollback_pending_records,
+                        receptor_id, batch
+                    )
 
         logger.info(f"Docking 同步扫描完成: 共提交 {total_submitted} 个任务")
 
@@ -291,6 +296,39 @@ class DockingSyncChecker:
             cur.close()
         except Exception as e:
             logger.warning(f"更新 pending 记录的 task_id 失败: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+    def _rollback_pending_records(
+        self, receptor_id: str, smiles_list: List[str]
+    ) -> None:
+        """
+        回滚孤儿 pending 记录：删除无 task_id 的 pending 记录，
+        避免 Redis 提交失败后阻塞后续扫描重新检测。
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+            cur = conn.cursor()
+
+            placeholders = ",".join(["%s"] * len(smiles_list))
+            sql = f"""
+            DELETE FROM docking_result
+            WHERE receptor_id = %s
+              AND smiles IN ({placeholders})
+              AND status = 'pending'
+              AND task_id IS NULL
+            """
+            cur.execute(sql, [receptor_id] + smiles_list)
+            deleted = cur.rowcount
+            conn.commit()
+            cur.close()
+            logger.info(f"已回滚 {deleted} 条孤儿 pending 记录 (receptor={receptor_id})")
+        except Exception as e:
+            logger.warning(f"回滚 pending 记录失败: {e}")
             if conn:
                 conn.rollback()
         finally:
