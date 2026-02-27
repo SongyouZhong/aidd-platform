@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     admet_sync_batch_size: int = Field(default=50, alias="ADMET_SYNC_BATCH_SIZE")
     admet_sync_priority: int = Field(default=4, alias="ADMET_SYNC_PRIORITY")
     
+    # Docking 自动同步
+    docking_sync_enabled: bool = Field(default=True, alias="DOCKING_SYNC_ENABLED")
+    docking_sync_interval: int = Field(default=3600, alias="DOCKING_SYNC_INTERVAL")  # 默认每小时扫描一次
+    docking_sync_batch_size: int = Field(default=10, alias="DOCKING_SYNC_BATCH_SIZE")  # Glide 计算较慢，小批次
+    docking_sync_priority: int = Field(default=3, alias="DOCKING_SYNC_PRIORITY")  # LOW 优先级
+    
     @property
     def database_url(self) -> str:
         """PostgreSQL 连接 URL"""

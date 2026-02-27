@@ -51,7 +51,7 @@ dependencies:
   # 开发工具
   - black
   - isort
-  
+  - psycopg2
   # pip 安装的包
   - pip
   - pip:

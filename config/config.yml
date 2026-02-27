@@ -110,6 +110,23 @@ admet_sync:
   task_priority: ${ADMET_SYNC_PRIORITY:4}
 
 # -----------------------------------------------------------------------------
+# Docking 自动同步配置
+# 定时扫描 project_receptors 表，自动为有受体文件的项目提交 docking 计算任务
+# -----------------------------------------------------------------------------
+docking_sync:
+  # 是否启用自动同步
+  enabled: ${DOCKING_SYNC_ENABLED:true}
+
+  # 扫描间隔（秒），默认 3600 = 每小时一次
+  scan_interval: ${DOCKING_SYNC_INTERVAL:3600}
+
+  # 每批次提交的 SMILES 数量上限（Glide 计算较慢，使用小批次）
+  batch_size: ${DOCKING_SYNC_BATCH_SIZE:10}
+
+  # 任务优先级：3=LOW，低于用户手动提交但高于 ADMET BATCH
+  task_priority: ${DOCKING_SYNC_PRIORITY:3}
+
+# -----------------------------------------------------------------------------
 # 服务队列映射
 # 定义每种计算服务对应的 Redis 队列
 # -----------------------------------------------------------------------------
