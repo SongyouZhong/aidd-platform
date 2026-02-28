@@ -10,6 +10,7 @@ from .priority_queue import PriorityTaskQueue, QueuePriority
 from .heartbeat_checker import HeartbeatChecker, get_heartbeat_checker
 from .admet_sync import AdmetSyncChecker, get_admet_sync_checker
 from .docking_sync import DockingSyncChecker, get_docking_sync_checker
+from .docking_result_processor import DockingResultProcessor, get_docking_result_processor
 
 __all__ = [
     "TaskDispatcher",
@@ -23,4 +24,6 @@ __all__ = [
     "get_admet_sync_checker",
     "DockingSyncChecker",
     "get_docking_sync_checker",
+    "DockingResultProcessor",
+    "get_docking_result_processor",
 ]

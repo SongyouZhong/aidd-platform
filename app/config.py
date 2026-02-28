@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     docking_sync_batch_size: int = Field(default=10, alias="DOCKING_SYNC_BATCH_SIZE")  # Glide 计算较慢，小批次
     docking_sync_priority: int = Field(default=3, alias="DOCKING_SYNC_PRIORITY")  # LOW 优先级
     
+    # Docking 结果后处理（扫描已完成任务并写入 docking_result 表）
+    docking_result_process_enabled: bool = Field(default=True, alias="DOCKING_RESULT_PROCESS_ENABLED")
+    docking_result_process_interval: int = Field(default=60, alias="DOCKING_RESULT_PROCESS_INTERVAL")  # 默认每 60 秒扫描一次
+    
     @property
     def database_url(self) -> str:
         """PostgreSQL 连接 URL"""

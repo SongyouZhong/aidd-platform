@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.api.v1 import api_router
 from app.api.deps import get_dispatcher, get_redis_client, close_connections, get_resource_manager
-from app.scheduler import get_heartbeat_checker, get_admet_sync_checker, get_docking_sync_checker
+from app.scheduler import get_heartbeat_checker, get_admet_sync_checker, get_docking_sync_checker, get_docking_result_processor
 
 # 配置日志
 logging.basicConfig(
@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 _heartbeat_task = None
 _admet_sync_task = None
 _docking_sync_task = None
+_docking_result_process_task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global _heartbeat_task, _admet_sync_task, _docking_sync_task
+    global _heartbeat_task, _admet_sync_task, _docking_sync_task, _docking_result_process_task
     
     # 启动时
     logger.info("Starting AIDD Platform...")
@@ -66,6 +67,12 @@ async def lifespan(app: FastAPI):
         docking_sync_checker = get_docking_sync_checker()
         _docking_sync_task = asyncio.create_task(docking_sync_checker.start())
         logger.info("Docking sync checker started")
+    
+    # 启动 Docking 结果后处理器（扫描完成的任务并写入 docking_result 表）
+    if settings.docking_result_process_enabled:
+        docking_result_processor = get_docking_result_processor()
+        _docking_result_process_task = asyncio.create_task(docking_result_processor.start())
+        logger.info("Docking result processor started")
     
     logger.info("AIDD Platform started successfully")
     
@@ -105,6 +112,17 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         logger.info("Docking sync checker stopped")
+    
+    # 停止 Docking 结果后处理器
+    if _docking_result_process_task:
+        docking_result_processor = get_docking_result_processor()
+        await docking_result_processor.stop()
+        _docking_result_process_task.cancel()
+        try:
+            await _docking_result_process_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Docking result processor stopped")
     
     await dispatcher.stop()
     await close_connections()
