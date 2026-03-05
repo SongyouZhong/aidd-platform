@@ -214,12 +214,12 @@ class AdmetSyncChecker:
             created_at=now,
         )
 
-        # 1. 推送到 Redis 队列
-        await self._push_to_redis(task)
-
-        # 2. 保存到 PostgreSQL tasks 表
+        # 1. 先保存到 PostgreSQL tasks 表（确保 Worker 消费时能查到任务记录）
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._save_task_to_db, task)
+
+        # 2. 再推送到 Redis 队列（Worker 才能消费）
+        await self._push_to_redis(task)
 
         return task_id
 
