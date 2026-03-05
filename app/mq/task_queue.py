@@ -29,6 +29,7 @@ class RedisTaskQueue:
     - aidd:queue:running          Set     运行中任务
     - aidd:queue:completed        List    已完成任务（最近 1000 条）
     - aidd:queue:failed           List    失败任务
+    - aidd:queue:cancelled        List    已取消任务
     - aidd:stats:*                Hash    统计信息
     """
     
@@ -40,6 +41,7 @@ class RedisTaskQueue:
     RUNNING_KEY = f"{PREFIX}:queue:running"
     COMPLETED_KEY = f"{PREFIX}:queue:completed"
     FAILED_KEY = f"{PREFIX}:queue:failed"
+    CANCELLED_KEY = f"{PREFIX}:queue:cancelled"
     STATS_KEY = f"{PREFIX}:stats"
     
     # 优先级分数映射（分数越小优先级越高，直接使用枚举值）
@@ -340,6 +342,8 @@ class RedisTaskQueue:
                     "error_message": reason or "Cancelled"
                 })
             
+            pipe.lpush(self.CANCELLED_KEY, task_id)
+            pipe.ltrim(self.CANCELLED_KEY, 0, self._max_completed_history - 1)
             pipe.hincrby(self.STATS_KEY, "cancelled", 1)
             await pipe.execute()
         
@@ -381,6 +385,50 @@ class RedisTaskQueue:
         redis = await self._get_redis()
         return list(await redis.smembers(self.RUNNING_KEY))
     
+    async def get_all_task_ids(self) -> List[str]:
+        """获取所有已知任务 ID（pending + running + completed + failed + cancelled）"""
+        redis = await self._get_redis()
+        
+        seen = set()
+        ordered: List[str] = []
+        
+        # Running tasks
+        running = await redis.smembers(self.RUNNING_KEY)
+        for tid in running:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        
+        # Pending tasks (sorted set, lowest score = highest priority)
+        pending = await redis.zrange(self.PENDING_KEY, 0, -1)
+        for tid in pending:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        
+        # Completed tasks (list, newest first)
+        completed = await redis.lrange(self.COMPLETED_KEY, 0, self._max_completed_history - 1)
+        for tid in completed:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        
+        # Failed tasks
+        failed = await redis.lrange(self.FAILED_KEY, 0, self._max_completed_history - 1)
+        for tid in failed:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        
+        # Cancelled tasks
+        cancelled = await redis.lrange(self.CANCELLED_KEY, 0, self._max_completed_history - 1)
+        for tid in cancelled:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        
+        return ordered
+
     async def get_stats(self) -> Dict[str, Any]:
         """获取队列统计信息"""
         redis = await self._get_redis()

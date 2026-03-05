@@ -24,9 +24,12 @@ logger = logging.getLogger(__name__)
 class ResourceUsageSchema(BaseModel):
     """资源使用情况"""
     cpu_cores: int = 0
+    cpu_percent: float = 0.0
     memory_gb: float = 0.0
+    memory_percent: float = 0.0
     gpu_count: int = 0
     gpu_memory_gb: float = 0.0
+    gpu_utilization: float = 0.0
 
 
 class WorkerRegister(BaseModel):
@@ -72,7 +75,7 @@ class WorkerResponse(BaseModel):
     """Worker 响应"""
     id: str
     hostname: str
-    ip_address: Optional[str]
+    ip_address: Optional[str] = None
     port: int
     status: WorkerStatus
     total_resources: ResourceUsageSchema
@@ -81,9 +84,12 @@ class WorkerResponse(BaseModel):
     supported_services: List[str]
     max_concurrent_tasks: int
     current_tasks: List[str]
+    labels: Dict[str, str] = {}
     utilization: float
-    registered_at: Optional[datetime]
-    last_heartbeat: Optional[datetime]
+    registered_at: Optional[datetime] = None
+    last_heartbeat: Optional[datetime] = None
+    total_tasks_completed: int = 0
+    total_tasks_failed: int = 0
 
 
 class WorkerListResponse(BaseModel):
@@ -399,26 +405,38 @@ def _worker_to_response(worker: Worker) -> WorkerResponse:
         status=worker.status,
         total_resources=ResourceUsageSchema(
             cpu_cores=worker.total_resources.cpu_cores,
+            cpu_percent=worker.total_resources.cpu_percent,
             memory_gb=worker.total_resources.memory_gb,
+            memory_percent=worker.total_resources.memory_percent,
             gpu_count=worker.total_resources.gpu_count,
-            gpu_memory_gb=worker.total_resources.gpu_memory_gb
+            gpu_memory_gb=worker.total_resources.gpu_memory_gb,
+            gpu_utilization=worker.total_resources.gpu_utilization,
         ),
         used_resources=ResourceUsageSchema(
             cpu_cores=worker.used_resources.cpu_cores,
+            cpu_percent=worker.used_resources.cpu_percent,
             memory_gb=worker.used_resources.memory_gb,
+            memory_percent=worker.used_resources.memory_percent,
             gpu_count=worker.used_resources.gpu_count,
-            gpu_memory_gb=worker.used_resources.gpu_memory_gb
+            gpu_memory_gb=worker.used_resources.gpu_memory_gb,
+            gpu_utilization=worker.used_resources.gpu_utilization,
         ),
         available_resources=ResourceUsageSchema(
             cpu_cores=available.cpu_cores,
+            cpu_percent=available.cpu_percent,
             memory_gb=available.memory_gb,
+            memory_percent=available.memory_percent,
             gpu_count=available.gpu_count,
-            gpu_memory_gb=available.gpu_memory_gb
+            gpu_memory_gb=available.gpu_memory_gb,
+            gpu_utilization=available.gpu_utilization,
         ),
         supported_services=worker.supported_services,
         max_concurrent_tasks=worker.max_concurrent_tasks,
         current_tasks=worker.current_tasks,
+        labels=worker.labels or {},
         utilization=worker.utilization,
         registered_at=worker.registered_at,
-        last_heartbeat=worker.last_heartbeat
+        last_heartbeat=worker.last_heartbeat,
+        total_tasks_completed=worker.total_tasks_completed,
+        total_tasks_failed=worker.total_tasks_failed,
     )

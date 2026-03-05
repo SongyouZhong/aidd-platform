@@ -71,20 +71,68 @@ class TaskCreate(BaseModel):
 class TaskResponse(BaseModel):
     """任务响应"""
     id: str
+    job_id: Optional[str] = None
+    name: Optional[str] = None
     service: str
-    name: Optional[str]
+    task_type: str = ""
     status: TaskStatus
     priority: TaskPriority
+    resources: Optional[ResourceRequirementSchema] = None
+    input_params: Dict[str, Any] = {}
+    input_files: List[str] = []
+    output_files: List[str] = []
+    result: Optional[Dict[str, Any]] = None
+    progress: float = 0.0
     created_at: datetime
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
-    worker_id: Optional[str]
-    retry_count: int
-    error_message: Optional[str]
-    result: Optional[Dict[str, Any]]
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    worker_id: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 3
+    timeout_seconds: int = 3600
+    error_message: Optional[str] = None
+    user_id: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+def _task_to_response(task: Task) -> TaskResponse:
+    """将 Task 模型转换为 API 响应"""
+    resources = None
+    if task.resources:
+        resources = ResourceRequirementSchema(
+            cpu_cores=task.resources.cpu_cores,
+            memory_gb=task.resources.memory_gb,
+            gpu_count=task.resources.gpu_count,
+            gpu_memory_gb=task.resources.gpu_memory_gb,
+        )
+    return TaskResponse(
+        id=task.id,
+        job_id=task.job_id,
+        name=task.name,
+        service=task.service,
+        task_type=task.task_type or "",
+        status=task.status,
+        priority=task.priority,
+        resources=resources,
+        input_params=task.input_params or {},
+        input_files=task.input_files or [],
+        output_files=task.output_files or [],
+        result=task.result,
+        progress=task.progress or 0.0,
+        created_at=task.created_at,
+        scheduled_at=task.scheduled_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at,
+        worker_id=task.worker_id,
+        retry_count=task.retry_count or 0,
+        max_retries=task.max_retries or 3,
+        timeout_seconds=task.timeout_seconds or 3600,
+        error_message=task.error_message,
+        user_id=None,
+    )
 
 
 class TaskListResponse(BaseModel):
@@ -226,20 +274,7 @@ async def create_task(
     # 2. 保存到 PostgreSQL（持久化，失败不影响任务执行）
     _save_task_to_db(task)
     
-    return TaskResponse(
-        id=task.id,
-        service=task.service,
-        name=task.name,
-        status=TaskStatus.PENDING,
-        priority=task.priority,
-        created_at=task.created_at,
-        started_at=None,
-        completed_at=None,
-        worker_id=None,
-        retry_count=0,
-        error_message=None,
-        result=None
-    )
+    return _task_to_response(task)
 
 
 @router.post("/batch", response_model=BatchTaskResponse)
@@ -289,38 +324,31 @@ async def list_tasks(
     task_status: Optional[TaskStatus] = Query(None, alias="status", description="按状态筛选"),
     service: Optional[str] = Query(None, description="按服务类型筛选"),
     limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     task_queue: RedisTaskQueue = Depends(get_redis_task_queue)
 ) -> TaskListResponse:
-    """获取任务列表"""
-    # 获取运行中的任务 ID
-    running_task_ids = await task_queue.get_running_tasks()
+    """获取任务列表（所有状态）"""
+    all_task_ids = await task_queue.get_all_task_ids()
     
-    items = []
-    for task_id in running_task_ids[:limit]:
+    # 获取所有任务详情并筛选
+    items: List[TaskResponse] = []
+    for task_id in all_task_ids:
         task = await task_queue.get_task(task_id)
-        if task:
-            # 筛选
-            if task_status and task.status != task_status:
-                continue
-            if service and task.service != service:
-                continue
-            
-            items.append(TaskResponse(
-                id=task.id,
-                service=task.service,
-                name=task.name,
-                status=task.status,
-                priority=task.priority,
-                created_at=task.created_at,
-                started_at=task.started_at,
-                completed_at=task.completed_at,
-                worker_id=task.worker_id,
-                retry_count=task.retry_count or 0,
-                error_message=task.error_message,
-                result=task.result
-            ))
+        if not task:
+            continue
+        if task_status and task.status != task_status:
+            continue
+        if service and task.service != service:
+            continue
+        items.append(_task_to_response(task))
     
-    return TaskListResponse(total=len(items), items=items)
+    # 按创建时间倒序
+    items.sort(key=lambda t: t.created_at, reverse=True)
+    
+    total = len(items)
+    items = items[offset:offset + limit]
+    
+    return TaskListResponse(total=total, items=items)
 
 
 @router.get("/stats", response_model=QueueStatsResponse)
@@ -346,20 +374,7 @@ async def get_task(
             detail=f"Task {task_id} not found"
         )
     
-    return TaskResponse(
-        id=task.id,
-        service=task.service,
-        name=task.name,
-        status=task.status,
-        priority=task.priority,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at,
-        worker_id=task.worker_id,
-        retry_count=task.retry_count or 0,
-        error_message=task.error_message,
-        result=task.result
-    )
+    return _task_to_response(task)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
