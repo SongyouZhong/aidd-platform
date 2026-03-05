@@ -112,13 +112,13 @@ CREATE TRIGGER update_workers_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- =========================================================================
--- ADMET QikProp 计算结果表（分子属性字典，按 SMILES 去重）
+-- ADMET QikProp 计算结果表（按 project_compound 一对一关联）
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS admet_compute_result (
-    id              UUID PRIMARY KEY,
-
-    -- 分子标识（唯一键）
-    smiles          TEXT NOT NULL UNIQUE,
+    -- id 与 project_compounds.id 一一对应
+    id              VARCHAR(36) PRIMARY KEY,
+    name            VARCHAR(255),                          -- 化合物名称，来自 project_compounds.name
+    project_id      VARCHAR(36) NOT NULL,                  -- 项目 ID，来自 project_compounds.project_id
 
     -- 吸收 (Absorption)
     percent_human_oral_absorption   FLOAT,
@@ -160,7 +160,8 @@ CREATE TABLE IF NOT EXISTS admet_compute_result (
     updated_at      TIMESTAMP
 );
 
--- ADMET 结果索引（SMILES 唯一约束已自动创建索引）
+-- ADMET 结果索引
+CREATE INDEX idx_admet_compute_result_project_name ON admet_compute_result(project_id, name);
 CREATE INDEX idx_admet_compute_result_herg ON admet_compute_result(qp_log_herg) WHERE qp_log_herg IS NOT NULL;
 CREATE INDEX idx_admet_compute_result_oral ON admet_compute_result(percent_human_oral_absorption) WHERE percent_human_oral_absorption IS NOT NULL;
 CREATE INDEX idx_admet_compute_result_ro5 ON admet_compute_result(rule_of_five) WHERE rule_of_five IS NOT NULL;

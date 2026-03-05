@@ -1,11 +1,10 @@
 """
 ADMET 自动同步检查器
 
-定时扫描 project_compounds 表中的 SMILES，与 admet_compute_result 对比，
-对缺少 ADMET 结果的分子自动提交 QikProp 计算任务。
+定时扫描 project_compounds 表，与 admet_compute_result 对比，
+对缺少 ADMET 结果的化合物自动提交 QikProp 计算任务。
 
-为第三方应用准备 ADMET 数据：第三方应用向 project_compounds 写入化合物，
-本模块定时扫描并确保每个 SMILES 在 admet_compute_result 中都有计算结果。
+以 project_compounds.id 为基准进行关联，不再使用 SMILES 去重。
 """
 
 import asyncio
@@ -29,9 +28,9 @@ class AdmetSyncChecker:
     ADMET 自动同步检查器
 
     职责：
-    1. 定时扫描 project_compounds 表，获取所有未删除的 SMILES
-    2. 与 admet_compute_result 表对比，找出缺少 ADMET 结果的分子
-    3. 将缺少结果的 SMILES 按批次提交为 ADMET 计算任务
+    1. 定时扫描 project_compounds 表，获取所有未删除的化合物
+    2. 与 admet_compute_result 表对比（通过 id 关联），找出缺少 ADMET 结果的化合物
+    3. 将缺少结果的化合物按批次提交为 ADMET 计算任务
     4. 任务通过 Redis 队列分发，由 ADMET Worker 执行计算并写入结果
     """
 
@@ -80,26 +79,26 @@ class AdmetSyncChecker:
     async def _scan_and_submit(self) -> None:
         """
         核心扫描逻辑：
-        1. 查询 project_compounds 中未删除的 SMILES（去重）
-        2. LEFT JOIN admet_compute_result 找出缺少结果的 SMILES
+        1. 查询 project_compounds 中未删除的化合物
+        2. LEFT JOIN admet_compute_result 找出缺少结果的化合物
         3. 按批次提交 ADMET 计算任务
         """
         logger.info("开始 ADMET 同步扫描...")
 
-        # Step 1: 查询缺少 ADMET 结果的 SMILES（在线程池中执行同步 DB 操作）
+        # Step 1: 查询缺少 ADMET 结果的化合物（在线程池中执行同步 DB 操作）
         loop = asyncio.get_event_loop()
-        missing_smiles = await loop.run_in_executor(None, self._query_missing_smiles)
+        missing_compounds = await loop.run_in_executor(None, self._query_missing_compounds)
 
-        if not missing_smiles:
-            logger.info("ADMET 同步扫描完成: 所有 SMILES 均已有 ADMET 结果，无需提交任务")
+        if not missing_compounds:
+            logger.info("ADMET 同步扫描完成: 所有化合物均已有 ADMET 结果，无需提交任务")
             return
 
-        logger.info(f"发现 {len(missing_smiles)} 个 SMILES 缺少 ADMET 结果，准备提交计算任务")
+        logger.info(f"发现 {len(missing_compounds)} 个化合物缺少 ADMET 结果，准备提交计算任务")
 
         # Step 2: 按批次分组并提交任务
         batches = [
-            missing_smiles[i:i + self._batch_size]
-            for i in range(0, len(missing_smiles), self._batch_size)
+            missing_compounds[i:i + self._batch_size]
+            for i in range(0, len(missing_compounds), self._batch_size)
         ]
 
         submitted_count = 0
@@ -109,25 +108,25 @@ class AdmetSyncChecker:
                 submitted_count += 1
                 logger.info(
                     f"已提交 ADMET 同步任务 {batch_idx + 1}/{len(batches)}: "
-                    f"task_id={task_id}, SMILES 数量={len(batch)}"
+                    f"task_id={task_id}, 化合物数量={len(batch)}"
                 )
             except Exception as e:
                 logger.error(f"提交 ADMET 同步任务 {batch_idx + 1}/{len(batches)} 失败: {e}")
 
         logger.info(
-            f"ADMET 同步扫描完成: 发现 {len(missing_smiles)} 个新 SMILES, "
+            f"ADMET 同步扫描完成: 发现 {len(missing_compounds)} 个新化合物, "
             f"提交 {submitted_count}/{len(batches)} 个任务"
         )
 
-    def _query_missing_smiles(self) -> List[str]:
+    def _query_missing_compounds(self) -> List[dict]:
         """
-        查询缺少 ADMET 结果的 SMILES
+        查询缺少 ADMET 结果的化合物
 
-        使用 LEFT JOIN 在一条 SQL 中完成差集计算，
-        避免分步查询的多次数据库往返。
+        使用 LEFT JOIN 通过 id 关联 admet_compute_result 表，
+        找出 project_compounds 中尚无计算结果的记录。
 
         Returns:
-            缺少 ADMET 结果的 SMILES 列表
+            缺少 ADMET 结果的化合物列表，每项包含 id, smiles, name, project_id
         """
         conn = None
         try:
@@ -142,19 +141,22 @@ class AdmetSyncChecker:
             cur = conn.cursor()
 
             sql = """
-            SELECT DISTINCT pc.smiles
+            SELECT pc.id, pc.smiles, pc.name, pc.project_id
             FROM project_compounds pc
-            LEFT JOIN admet_compute_result acr ON pc.smiles = acr.smiles
+            LEFT JOIN admet_compute_result acr ON pc.id = acr.id
             WHERE pc.deleted = false
-              AND acr.smiles IS NULL
+              AND acr.id IS NULL
               AND pc.smiles IS NOT NULL
               AND pc.smiles != ''
             """
             cur.execute(sql)
             rows = cur.fetchall()
 
-            missing = [row[0] for row in rows]
-            logger.info(f"数据库查询完成: project_compounds 中有 {len(missing)} 个 SMILES 缺少 ADMET 结果")
+            missing = [
+                {"id": row[0], "smiles": row[1], "name": row[2], "project_id": row[3]}
+                for row in rows
+            ]
+            logger.info(f"数据库查询完成: project_compounds 中有 {len(missing)} 个化合物缺少 ADMET 结果")
 
             cur.close()
             return missing
@@ -169,14 +171,14 @@ class AdmetSyncChecker:
                 except Exception:
                     pass
 
-    async def _submit_admet_task(self, smiles_list: List[str], batch_index: int) -> str:
+    async def _submit_admet_task(self, compounds: List[dict], batch_index: int) -> str:
         """
         提交一个 ADMET 计算任务到 Redis 队列
 
         同时将任务记录到 PostgreSQL tasks 表，保持与 API 提交任务一致的行为。
 
         Args:
-            smiles_list: 本批次要计算的 SMILES 列表
+            compounds: 本批次要计算的化合物列表，每项包含 id/smiles/name/project_id
             batch_index: 批次编号
 
         Returns:
@@ -185,6 +187,9 @@ class AdmetSyncChecker:
         now = datetime.now()
         task_id = str(uuid.uuid4())
         date_str = now.strftime('%Y%m%d')
+
+        # 提取 SMILES 列表供 QikProp 计算使用
+        smiles_list = [c["smiles"] for c in compounds]
 
         # 构造 Task 对象
         task = Task(
@@ -196,6 +201,7 @@ class AdmetSyncChecker:
             status=TaskStatus.PENDING,
             input_params={
                 "smiles": smiles_list,
+                "compounds": compounds,      # 化合物元数据（id/smiles/name/project_id）
                 "source": "admet_sync",
                 "batch_index": batch_index,
             },
