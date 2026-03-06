@@ -6,7 +6,7 @@ import logging
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.models import Worker, WorkerStatus, ResourceUsage
@@ -190,7 +190,7 @@ def _update_worker_heartbeat_db(worker_id: str, used_cpu: int, used_memory_gb: f
     """更新 Worker 心跳到数据库"""
     try:
         import psycopg2
-        from datetime import datetime
+        from datetime import datetime, timezone
         from app.config import get_settings
         settings = get_settings()
         
@@ -213,7 +213,7 @@ def _update_worker_heartbeat_db(worker_id: str, used_cpu: int, used_memory_gb: f
             updated_at = CURRENT_TIMESTAMP
         WHERE id = %s
         """
-        cur.execute(sql, (used_cpu, used_memory_gb, used_gpu, status, datetime.now(), worker_id))
+        cur.execute(sql, (used_cpu, used_memory_gb, used_gpu, status, datetime.now(timezone.utc), worker_id))
         conn.commit()
         cur.close()
         conn.close()

@@ -5,7 +5,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import psycopg2
@@ -100,7 +100,7 @@ class HeartbeatChecker:
             cur = conn.cursor()
             
             # 查找心跳超时的 Worker
-            timeout_threshold = datetime.now() - timedelta(seconds=self._heartbeat_timeout)
+            timeout_threshold = datetime.now(timezone.utc) - timedelta(seconds=self._heartbeat_timeout)
             
             sql = """
             UPDATE workers 
@@ -190,7 +190,7 @@ class HeartbeatChecker:
             
             # 注意：这里不直接恢复到内存，因为 Worker 需要主动发送心跳重新注册
             # 但我们可以检查超时的并标记为 offline
-            timeout_threshold = datetime.now() - timedelta(seconds=self._heartbeat_timeout)
+            timeout_threshold = datetime.now(timezone.utc) - timedelta(seconds=self._heartbeat_timeout)
             
             for row in rows:
                 worker_id = row[0]

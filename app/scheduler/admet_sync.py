@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import psycopg2
@@ -184,7 +184,7 @@ class AdmetSyncChecker:
         Returns:
             任务 ID
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         task_id = str(uuid.uuid4())
         date_str = now.strftime('%Y%m%d')
 
@@ -259,7 +259,7 @@ class AdmetSyncChecker:
         # 计算优先级分数
         priority_base = {0: 0, 1: 100, 2: 200, 3: 300, 4: 400}
         score = priority_base.get(task.priority.value, 400) + (
-            datetime.now().timestamp() / 10000000000
+            datetime.now(timezone.utc).timestamp() / 10000000000
         )
 
         # 原子 Pipeline 操作
@@ -314,7 +314,7 @@ class AdmetSyncChecker:
                 task.resources.memory_gb,
                 task.resources.gpu_count,
                 task.resources.gpu_memory_gb,
-                task.created_at or datetime.now()
+                task.created_at or datetime.now(timezone.utc)
             ))
             conn.commit()
             cur.close()

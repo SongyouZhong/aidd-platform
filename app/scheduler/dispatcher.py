@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from typing import Dict, List, Optional, Callable, Awaitable
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from app.models import Task, TaskStatus, TaskPriority, Worker, ResourceRequirement
@@ -103,7 +103,7 @@ class TaskDispatcher:
             return False
         
         task.status = TaskStatus.PENDING
-        task.created_at = task.created_at or datetime.now()
+        task.created_at = task.created_at or datetime.now(timezone.utc)
         
         if self._task_queue.push(task):
             logger.info(f"Task submitted: {task.id} (service={task.service})")
@@ -163,7 +163,7 @@ class TaskDispatcher:
         
         # 更新任务状态
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.now()
+        task.started_at = datetime.now(timezone.utc)
         task.worker_id = worker.id
         
         # 记录运行中的任务
@@ -233,7 +233,7 @@ class TaskDispatcher:
         
         # 更新任务状态
         task.status = TaskStatus.COMPLETED
-        task.completed_at = datetime.now()
+        task.completed_at = datetime.now(timezone.utc)
         task.result = result
         
         # 释放资源
@@ -300,7 +300,7 @@ class TaskDispatcher:
         else:
             # 标记失败
             task.status = TaskStatus.FAILED
-            task.completed_at = datetime.now()
+            task.completed_at = datetime.now(timezone.utc)
             task.error_message = error
             logger.error(f"Task failed: {task_id} - {error}")
             

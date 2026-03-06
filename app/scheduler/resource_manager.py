@@ -5,7 +5,7 @@
 
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models import Worker, WorkerStatus, ResourceRequirement
 from app.config import get_settings
@@ -33,8 +33,8 @@ class ResourceManager:
     
     def register_worker(self, worker: Worker) -> None:
         """注册 Worker"""
-        worker.registered_at = datetime.now()
-        worker.last_heartbeat = datetime.now()
+        worker.registered_at = datetime.now(timezone.utc)
+        worker.last_heartbeat = datetime.now(timezone.utc)
         worker.status = WorkerStatus.ONLINE
         self._workers[worker.id] = worker
         logger.info(f"Worker registered: {worker.id} ({worker.hostname})")
@@ -80,7 +80,7 @@ class ResourceManager:
         if not worker:
             return False
         
-        worker.last_heartbeat = datetime.now()
+        worker.last_heartbeat = datetime.now(timezone.utc)
         worker.used_resources.cpu_cores = used_cpu
         worker.used_resources.memory_gb = used_memory_gb
         worker.used_resources.gpu_count = used_gpu
@@ -107,7 +107,7 @@ class ResourceManager:
             超时的 Worker ID 列表
         """
         timeout = timedelta(seconds=self._settings.heartbeat_timeout)
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         timed_out = []
         
         for worker_id, worker in self._workers.items():

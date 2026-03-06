@@ -9,7 +9,7 @@
 import json
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import asdict
 
 from app.models import Task, TaskStatus, TaskPriority, ResourceRequirement
@@ -91,7 +91,7 @@ class RedisTaskQueue:
         # 计算优先级分数
         # 使用 优先级基础分 + 时间戳 实现同优先级 FIFO
         priority_score = self.PRIORITY_SCORES.get(task.priority, 200)
-        timestamp = (task.created_at or datetime.now()).timestamp()
+        timestamp = (task.created_at or datetime.now(timezone.utc)).timestamp()
         score = priority_score + (timestamp / 10000000000)  # 保证时间戳影响较小
         
         # 使用 Pipeline 原子操作
@@ -200,13 +200,13 @@ class RedisTaskQueue:
             pipe.sadd(self.RUNNING_KEY, task_id)
             pipe.hset(task_key, mapping={
                 "status": TaskStatus.RUNNING.value,
-                "started_at": datetime.now().isoformat()
+                "started_at": datetime.now(timezone.utc).isoformat()
             })
             pipe.hincrby(self.STATS_KEY, "running", 1)
             await pipe.execute()
         
         task_data["status"] = TaskStatus.RUNNING.value
-        task_data["started_at"] = datetime.now().isoformat()
+        task_data["started_at"] = datetime.now(timezone.utc).isoformat()
         
         return self._deserialize_task(task_data)
     
@@ -228,7 +228,7 @@ class RedisTaskQueue:
             logger.warning(f"Task not in running state: {task_id}")
             return False
         
-        completed_at = datetime.now().isoformat()
+        completed_at = datetime.now(timezone.utc).isoformat()
         
         async with redis.pipeline(transaction=True) as pipe:
             # 更新任务状态
@@ -305,7 +305,7 @@ class RedisTaskQueue:
                 # 标记失败
                 pipe.hset(task_key, mapping={
                     "status": TaskStatus.FAILED.value,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "retry_count": retry_count,
                     "error_message": error
                 })
@@ -338,7 +338,7 @@ class RedisTaskQueue:
                 
                 pipe.hset(task_key, mapping={
                     "status": TaskStatus.CANCELLED.value,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "error_message": reason or "Cancelled"
                 })
             
@@ -468,7 +468,7 @@ class RedisTaskQueue:
             "worker_id": task.worker_id or "",
             "error_message": task.error_message or "",
             "progress": str(task.progress or 0),
-            "created_at": task.created_at.isoformat() if task.created_at else datetime.now().isoformat(),
+            "created_at": task.created_at.isoformat() if task.created_at else datetime.now(timezone.utc).isoformat(),
         }
         
         if task.resources:

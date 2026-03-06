@@ -9,7 +9,7 @@
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 import logging
 import json
@@ -208,7 +208,7 @@ def _save_task_to_db(task: Task) -> bool:
             task.resources.gpu_count if task.resources else 0,
             task.resources.gpu_memory_gb if task.resources else 0.0,
             task.job_id,
-            task.created_at or datetime.now()
+            task.created_at or datetime.now(timezone.utc)
         ))
         conn.commit()
         cur.close()
@@ -248,7 +248,7 @@ async def create_task(
         "input_files": request.input_files,
         "max_retries": request.max_retries,
         "job_id": request.job_id,
-        "created_at": datetime.now()
+        "created_at": datetime.now(timezone.utc)
     }
     # 仅当 timeout_seconds 有值时才传入
     if request.timeout_seconds is not None:
@@ -297,7 +297,7 @@ async def create_tasks_batch(
             max_retries=req.max_retries,
             timeout_seconds=req.timeout_seconds,
             job_id=req.job_id,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         if req.resource_requirement:

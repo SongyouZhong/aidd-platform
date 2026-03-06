@@ -4,7 +4,7 @@
 """
 
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
@@ -105,7 +105,7 @@ class Task(BaseModel):
     # 时间戳
     # =========================================================================
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(),
+        default_factory=lambda: datetime.now(timezone.utc),
         description="创建时间"
     )
     scheduled_at: Optional[datetime] = Field(

@@ -18,7 +18,7 @@ import io
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple, Dict
 
 import psycopg2
@@ -389,7 +389,7 @@ class DockingSyncChecker:
         3. 推送到 Redis 队列
         4. 保存到 PostgreSQL
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         task_id = str(uuid.uuid4())
         date_str = now.strftime("%Y%m%d")
 
@@ -477,7 +477,7 @@ class DockingSyncChecker:
         # 计算优先级分数（与 AdmetSyncChecker 一致）
         priority_base = {0: 0, 1: 100, 2: 200, 3: 300, 4: 400}
         score = priority_base.get(task.priority.value, 400) + (
-            datetime.now().timestamp() / 10000000000
+            datetime.now(timezone.utc).timestamp() / 10000000000
         )
 
         service_queue = f"aidd:queue:service:{task.service}"
@@ -524,7 +524,7 @@ class DockingSyncChecker:
                 task.resources.memory_gb,
                 task.resources.gpu_count,
                 task.resources.gpu_memory_gb,
-                task.created_at or datetime.now()
+                task.created_at or datetime.now(timezone.utc)
             ))
             conn.commit()
             cur.close()

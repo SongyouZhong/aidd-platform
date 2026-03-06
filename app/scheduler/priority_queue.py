@@ -7,7 +7,7 @@ import heapq
 import logging
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import IntEnum
 
 from app.models import Task, TaskPriority, TaskStatus
@@ -52,7 +52,7 @@ class QueueItem:
         
         return cls(
             priority=priority,
-            created_at=task.created_at or datetime.now(),
+            created_at=task.created_at or datetime.now(timezone.utc),
             task=task
         )
 
