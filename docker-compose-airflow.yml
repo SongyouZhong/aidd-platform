@@ -1,0 +1,230 @@
+# =========================================================================
+# AIDD Platform — Airflow 迁移版 Docker Compose 配置
+# =========================================================================
+#
+# 此配置替代原 aidd-platform（FastAPI）和 aidd-platform-front（Vue 3），
+# 使用 Airflow 进行任务编排，Grafana + Prometheus 进行监控。
+#
+# 前置条件:
+#   - PostgreSQL: 使用现有数据库（10.18.85.10:30684/aichemol）
+#   - Redis: 通过本配置自动启动
+#
+# 启动方式:
+#   1. 首次启动（初始化 Airflow 元数据库）:
+#      docker-compose -f docker-compose-airflow.yml up airflow-init
+#   2. 启动所有服务:
+#      docker-compose -f docker-compose-airflow.yml up -d
+#
+# Airflow Web UI: http://localhost:8080 (admin/admin)
+# Grafana: http://localhost:3000 (admin/admin)
+# Prometheus: http://localhost:9191
+#
+# =========================================================================
+
+version: "3.8"
+
+# 公共 Airflow 环境变量
+x-airflow-env: &airflow-env
+  # Airflow 核心配置
+  AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+  AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
+  AIRFLOW__CORE__FERNET_KEY: "your-fernet-key-here-replace-in-production"
+  # Airflow 元数据库（在业务 PostgreSQL 中单独建 airflow 数据库）
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-strongpassword}@${POSTGRES_HOST:-10.18.85.10}:${POSTGRES_PORT:-30684}/airflow
+  # Celery Broker 使用 Redis db1（业务数据在 db0，避免冲突）
+  AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/1
+  AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-strongpassword}@${POSTGRES_HOST:-10.18.85.10}:${POSTGRES_PORT:-30684}/airflow
+  # Web UI
+  AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: Asia/Shanghai
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+  AIRFLOW__WEBSERVER__WORKERS: 2
+  # Scheduler 性能
+  AIRFLOW__SCHEDULER__SCHEDULER_HEARTBEAT_SEC: 5
+  AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 30
+  # 日志
+  AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+  # 业务连接参数（供 DAG 中的 common/config.py 读取）
+  POSTGRES_HOST: ${POSTGRES_HOST:-10.18.85.10}
+  POSTGRES_PORT: ${POSTGRES_PORT:-30684}
+  POSTGRES_USER: ${POSTGRES_USER:-appuser}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+  POSTGRES_DB: ${POSTGRES_DB:-aichemol}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-172.19.80.100:9090}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-admin}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minio_test_password_2025}
+  MINIO_BUCKET: ${MINIO_BUCKET:-aidd-files}
+
+# 公共 Airflow 卷挂载
+x-airflow-volumes: &airflow-volumes
+  - ./dags:/opt/airflow/dags
+  - airflow_logs:/opt/airflow/logs
+
+services:
+  # =========================================================================
+  # Redis（业务 db0 + Airflow Celery Broker db1）
+  # =========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: aidd-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - aidd-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # Airflow 初始化（仅首次运行）
+  # =========================================================================
+  airflow-init:
+    image: apache/airflow:2.9-python3.11
+    container_name: aidd-airflow-init
+    environment:
+      <<: *airflow-env
+    volumes: *airflow-volumes
+    entrypoint: /bin/bash
+    command: >
+      -c "
+        airflow db migrate &&
+        airflow users create
+          --username admin --password admin
+          --firstname Admin --lastname User
+          --role Admin --email admin@aidd.local
+        || true
+      "
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aidd-network
+
+  # =========================================================================
+  # Airflow Web Server（用户主入口，替代原 aidd-platform-front）
+  # =========================================================================
+  airflow-webserver:
+    image: apache/airflow:2.9-python3.11
+    container_name: aidd-airflow-webserver
+    command: webserver
+    environment:
+      <<: *airflow-env
+    volumes: *airflow-volumes
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aidd-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # =========================================================================
+  # Airflow Scheduler（DAG 解析和调度）
+  # =========================================================================
+  airflow-scheduler:
+    image: apache/airflow:2.9-python3.11
+    container_name: aidd-airflow-scheduler
+    command: scheduler
+    environment:
+      <<: *airflow-env
+    volumes: *airflow-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aidd-network
+    restart: unless-stopped
+
+  # =========================================================================
+  # Airflow Celery Worker（仅做编排，不做计算——计算由 aidd-toolkit Worker 执行）
+  # =========================================================================
+  airflow-worker:
+    image: apache/airflow:2.9-python3.11
+    container_name: aidd-airflow-worker
+    command: celery worker
+    environment:
+      <<: *airflow-env
+    volumes: *airflow-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aidd-network
+    restart: unless-stopped
+
+  # =========================================================================
+  # Prometheus（指标采集）
+  # =========================================================================
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: aidd-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    volumes:
+      - ./monitor/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9191:9090"
+    networks:
+      - aidd-network
+    restart: unless-stopped
+
+  # =========================================================================
+  # Grafana（资源监控面板）
+  # =========================================================================
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: aidd-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitor/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - aidd-network
+    restart: unless-stopped
+
+# =========================================================================
+# 网络
+# =========================================================================
+networks:
+  aidd-network:
+    driver: bridge
+    name: aidd-network
+
+# =========================================================================
+# 数据卷
+# =========================================================================
+volumes:
+  redis_data:
+    name: aidd-redis-data
+  airflow_logs:
+    name: aidd-airflow-logs
+  prometheus_data:
+    name: aidd-prometheus-data
+  grafana_data:
+    name: aidd-grafana-data

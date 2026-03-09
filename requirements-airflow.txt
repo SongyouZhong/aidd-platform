@@ -1,0 +1,16 @@
+# =============================================================================
+# Airflow DAG Python 依赖
+# 安装到 Airflow Worker/Scheduler 中（pip install -r requirements-airflow.txt）
+# =============================================================================
+
+# 数据库
+psycopg2-binary>=2.9.0
+
+# Redis（同步客户端，用于 DAG 中的队列操作）
+redis>=5.0.0
+
+# MinIO
+minio>=7.2.0
+
+# 工具库
+pydantic>=2.0.0

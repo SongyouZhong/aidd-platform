@@ -1,0 +1,44 @@
+# =============================================================================
+# Prometheus 配置
+# 采集 aidd-toolkit Worker 节点和 Airflow 的指标
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # -------------------------------------------------------------------------
+  # aidd-toolkit Worker 节点（ADMET / Docking Worker）
+  # Worker 端通过 Prometheus client 暴露 /metrics 端点
+  # -------------------------------------------------------------------------
+  - job_name: 'aidd-workers'
+    scrape_interval: 15s
+    # 静态配置：根据实际部署的 Worker 节点填写
+    # 如果 Worker 使用动态注册，可改为 file_sd_configs 或 consul_sd_configs
+    static_configs:
+      - targets:
+          # 示例 Worker 地址，请替换为实际地址
+          - '172.19.80.100:9100'  # Worker 1 node_exporter
+          - '172.19.80.100:9101'  # Worker 1 aidd metrics
+        labels:
+          group: 'aidd-workers'
+
+  # -------------------------------------------------------------------------
+  # Airflow StatsD Exporter (可选)
+  # Airflow 通过 StatsD 暴露内部指标，需要单独部署 statsd_exporter
+  # -------------------------------------------------------------------------
+  - job_name: 'airflow'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - 'airflow-webserver:8080'
+        labels:
+          group: 'airflow'
+
+  # -------------------------------------------------------------------------
+  # Prometheus 自身监控
+  # -------------------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

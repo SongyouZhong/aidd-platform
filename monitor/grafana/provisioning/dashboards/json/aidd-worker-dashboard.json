@@ -1,0 +1,120 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "AIDD Worker 资源监控看板",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Worker 在线状态",
+      "type": "table",
+      "datasource": "PostgreSQL",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "rawSql": "SELECT id, hostname, ip_address, status, supported_services, last_heartbeat, total_cpu_cores, total_memory_gb, total_gpu_count FROM workers ORDER BY status, hostname",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Worker CPU 使用率",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "targets": [
+        {
+          "expr": "aidd_worker_cpu_usage_cores",
+          "legendFormat": "{{worker_id}}"
+        }
+      ]
+    },
+    {
+      "title": "Worker 内存使用率",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "targets": [
+        {
+          "expr": "aidd_worker_memory_usage_gb",
+          "legendFormat": "{{worker_id}}"
+        }
+      ]
+    },
+    {
+      "title": "Worker GPU 使用率",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "targets": [
+        {
+          "expr": "aidd_worker_gpu_usage_count",
+          "legendFormat": "{{worker_id}}"
+        }
+      ]
+    },
+    {
+      "title": "任务完成趋势 (5m rate)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "targets": [
+        {
+          "expr": "rate(aidd_tasks_total[5m])",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "title": "任务耗时分布",
+      "type": "histogram",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+      "targets": [
+        {
+          "expr": "aidd_task_duration_seconds",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "title": "任务队列深度",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+      "targets": [
+        {
+          "expr": "aidd_worker_task_queue_depth",
+          "legendFormat": "{{worker_id}} - {{service}}"
+        }
+      ]
+    },
+    {
+      "title": "任务统计概览",
+      "type": "table",
+      "datasource": "PostgreSQL",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 30},
+      "targets": [
+        {
+          "rawSql": "SELECT service, status, COUNT(*) as count, AVG(EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - created_at))) as avg_duration_sec FROM tasks WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY service, status ORDER BY service, status",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["aidd", "worker", "monitoring"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "title": "AIDD Worker 监控",
+  "uid": "aidd-worker-monitor"
+}

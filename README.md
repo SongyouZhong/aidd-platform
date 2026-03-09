@@ -149,8 +149,7 @@
 │
 ├── docker-compose.yml
 ├── Dockerfile
-├── environment.yml             # Mamba/Conda 环境配置
-└── requirements.txt            # pip 依赖（备用）
+└── environment.yml             # Mamba/Conda 环境配置
 ```
 
 ---
