@@ -15,11 +15,10 @@ Worker 心跳检查 DAG
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +31,8 @@ with DAG(
     dag_id='worker_heartbeat_check',
     default_args=default_args,
     description='检查 Worker 心跳，标记超时节点为 offline',
-    schedule_interval='*/1 * * * *',  # 每分钟
-    start_date=days_ago(1),
+    schedule='*/1 * * * *',  # 每分钟
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     tags=['worker', 'heartbeat', 'monitor'],
 ) as dag:

@@ -8,7 +8,6 @@ import logging
 from typing import Optional
 
 from airflow.models import BaseOperator
-from airflow.utils.decorators import apply_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,6 @@ class MinioUploadOperator(BaseOperator):
 
     template_fields = ['content', 'object_name']
 
-    @apply_defaults
     def __init__(
         self,
         content: str,
@@ -57,7 +55,6 @@ class MinioDownloadOperator(BaseOperator):
 
     template_fields = ['object_name']
 
-    @apply_defaults
     def __init__(
         self,
         object_name: str,

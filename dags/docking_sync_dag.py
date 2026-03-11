@@ -22,12 +22,11 @@ import io
 import json
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +40,8 @@ with DAG(
     dag_id='docking_sync',
     default_args=default_args,
     description='扫描缺少 docking 结果的化合物，自动提交 Glide docking 任务',
-    schedule_interval='0 */1 * * *',  # 每小时
-    start_date=days_ago(1),
+    schedule='0 */1 * * *',  # 每小时
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     tags=['docking', 'sync', 'batch'],
 ) as dag:

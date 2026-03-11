@@ -20,12 +20,11 @@ import csv
 import io
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,8 @@ with DAG(
     dag_id='docking_result_process',
     default_args=default_args,
     description='扫描已完成/失败的 docking 任务，解析结果写入 docking_result 表',
-    schedule_interval='*/2 * * * *',  # 每2分钟
-    start_date=days_ago(1),
+    schedule='*/2 * * * *',  # 每2分钟
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     tags=['docking', 'result', 'process'],
 ) as dag:

@@ -9,7 +9,6 @@ import time
 from typing import Optional
 
 from airflow.sensors.base import BaseSensorOperator
-from airflow.utils.decorators import apply_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,6 @@ class RedisTaskSensor(BaseSensorOperator):
 
     template_fields = ['task_id_xcom_task', 'task_id_xcom_key']
 
-    @apply_defaults
     def __init__(
         self,
         task_id_xcom_task: str,

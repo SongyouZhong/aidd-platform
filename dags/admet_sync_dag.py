@@ -17,11 +17,10 @@ ADMET 自动同步 DAG
 import json
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +34,8 @@ with DAG(
     dag_id='admet_sync',
     default_args=default_args,
     description='扫描缺少 ADMET 结果的化合物，自动提交 QikProp 计算任务',
-    schedule_interval='0 2 * * *',  # 每天凌晨2点
-    start_date=days_ago(1),
+    schedule='0 2 * * *',  # 每天凌晨2点
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     tags=['admet', 'sync', 'batch'],
 ) as dag:

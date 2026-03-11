@@ -1,0 +1,77 @@
+# ==========================================================================
+# Filebeat 配置 — AIDD Platform 日志采集
+# ==========================================================================
+# 将 Airflow 任务日志发送到公司内部 Elasticsearch，通过 Kibana 查看：
+#   http://kibana.createrna.com/app/discover
+#   http://prokibana.createrna.com
+#
+# 环境变量由 docker-compose 注入（来源：.env 文件）：
+#   ELASTICSEARCH_HOSTS   - ES 地址，如 http://elasticsearch.createrna.com:9200
+#   ELASTICSEARCH_USERNAME - ES 用户名（可为空）
+#   ELASTICSEARCH_PASSWORD - ES 密码（可为空）
+#   KIBANA_URL            - Kibana 地址
+#   FILEBEAT_INDEX        - 索引前缀，如 aidd-airflow-logs
+# ==========================================================================
+
+filebeat.inputs:
+  # --------------------------------------------------------------------------
+  # Airflow 任务日志（DAG / Task 执行日志）
+  # --------------------------------------------------------------------------
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/airflow/dag_id=*/**/*.log
+      - /var/log/airflow/**/*.log
+    fields:
+      service: airflow
+      environment: production
+      platform: aidd-platform
+    fields_under_root: true
+    # 多行合并：Airflow 日志行以时间戳开头，否则追加到上一行
+    multiline.pattern: '^\[\d{4}-\d{2}-\d{2}'
+    multiline.negate: true
+    multiline.match: after
+    # 解析日志中的 dag_id / task_id（从路径中提取）
+    processors:
+      - add_fields:
+          target: ''
+          fields:
+            log_type: airflow_task
+      - dissect:
+          tokenizer: "/var/log/airflow/%{dag_id}/%{run_id}/%{task_id}/%{attempt}.log"
+          field: log.file.path
+          target_prefix: airflow
+          ignore_failure: true
+
+# --------------------------------------------------------------------------
+# 输出到公司 Elasticsearch
+# --------------------------------------------------------------------------
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_HOSTS}"]
+  username: "${ELASTICSEARCH_USERNAME}"
+  password: "${ELASTICSEARCH_PASSWORD}"
+  index: "${FILEBEAT_INDEX}-%{+yyyy.MM.dd}"
+  # 如公司 ES 使用自签证书，取消以下注释：
+  # ssl.verification_mode: none
+
+# --------------------------------------------------------------------------
+# Kibana（用于 Index Pattern 自动初始化）
+# --------------------------------------------------------------------------
+setup.kibana:
+  host: "${KIBANA_URL}"
+
+# --------------------------------------------------------------------------
+# 索引模板设置
+# --------------------------------------------------------------------------
+setup.template:
+  name: "${FILEBEAT_INDEX}"
+  pattern: "${FILEBEAT_INDEX}-*"
+  settings:
+    index.number_of_shards: 1
+    index.number_of_replicas: 0
+
+# --------------------------------------------------------------------------
+# Filebeat 自身日志
+# --------------------------------------------------------------------------
+logging.level: info
+logging.to_files: false

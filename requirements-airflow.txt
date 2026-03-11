@@ -3,6 +3,9 @@
 # 安装到 Airflow Worker/Scheduler 中（pip install -r requirements-airflow.txt）
 # =============================================================================
 
+# Airflow 3.x 需要单独安装 CeleryExecutor provider
+apache-airflow-providers-celery>=1.3.0
+
 # 数据库
 psycopg2-binary>=2.9.0
 

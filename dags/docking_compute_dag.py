@@ -24,13 +24,12 @@ dag_run.conf 示例:
 import json
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-from airflow.utils.dates import days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,8 @@ with DAG(
     dag_id='docking_compute',
     default_args=default_args,
     description='手动触发 Docking (Glide) 计算流水线',
-    schedule_interval=None,  # 仅手动触发
-    start_date=days_ago(1),
+    schedule=None,  # 仅手动触发
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     tags=['docking', 'compute', 'manual'],
     params={

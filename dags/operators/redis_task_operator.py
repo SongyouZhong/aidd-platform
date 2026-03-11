@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import List, Optional
 
 from airflow.models import BaseOperator
-from airflow.utils.decorators import apply_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,6 @@ class RedisTaskOperator(BaseOperator):
 
     template_fields = ['input_params', 'input_files', 'task_name']
 
-    @apply_defaults
     def __init__(
         self,
         service: str,
